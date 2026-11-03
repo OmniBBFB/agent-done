@@ -1,0 +1,215 @@
+{
+  "passed": true,
+  "completion_events": "synthetic fixtures",
+  "checks": [
+    {
+      "before": {
+        "pending_count": 2,
+        "sessions": [
+          {
+            "id": "jump-test-2",
+            "title": "",
+            "cwd": "",
+            "phase": "done",
+            "turn_id": "test-turn",
+            "pending": true,
+            "reason": "done",
+            "updated": 1793671560.4658003,
+            "views": [
+              {
+                "connection": "jump-test-2",
+                "session": "jump-test-2",
+                "window_id": 232,
+                "pid": 32772,
+                "start_ticks": "429388157",
+                "owner_pid": 32772,
+                "owner_start_ticks": "429388157",
+                "active": true,
+                "position": {
+                  "output": "HDMI-A-1",
+                  "workspace": 4,
+                  "row": 1,
+                  "column": 2,
+                  "floating": false
+                }
+              }
+            ]
+          },
+          {
+            "id": "jump-test-1",
+            "title": "",
+            "cwd": "",
+            "phase": "done",
+            "turn_id": "test-turn",
+            "pending": true,
+            "reason": "done",
+            "updated": 1793671560.445063,
+            "views": [
+              {
+                "connection": "jump-test-1",
+                "session": "jump-test-1",
+                "window_id": 231,
+                "pid": 32740,
+                "start_ticks": "429388134",
+                "owner_pid": 32740,
+                "owner_start_ticks": "429388134",
+                "active": true,
+                "position": {
+                  "output": "HDMI-A-1",
+                  "workspace": 4,
+                  "row": 1,
+                  "column": 1,
+                  "floating": false
+                }
+              }
+            ]
+          }
+        ],
+        "niri_connected": true,
+        "focused_window": 202
+      }
+    },
+    {
+      "cli": "已跳到窗口 231（jump-test-1）",
+      "after": {
+        "pending_count": 1,
+        "sessions": [
+          {
+            "id": "jump-test-2",
+            "title": "",
+            "cwd": "",
+            "phase": "done",
+            "turn_id": "test-turn",
+            "pending": true,
+            "reason": "done",
+            "updated": 1793671560.4658003,
+            "views": [
+              {
+                "connection": "jump-test-2",
+                "session": "jump-test-2",
+                "window_id": 232,
+                "pid": 32772,
+                "start_ticks": "429388157",
+                "owner_pid": 32772,
+                "owner_start_ticks": "429388157",
+                "active": true,
+                "position": {
+                  "output": "HDMI-A-1",
+                  "workspace": 4,
+                  "row": 1,
+                  "column": 2,
+                  "floating": false
+                }
+              }
+            ]
+          },
+          {
+            "id": "jump-test-1",
+            "title": "",
+            "cwd": "",
+            "phase": "done",
+            "turn_id": "test-turn",
+            "pending": false,
+            "reason": "done",
+            "updated": 1793671560.445063,
+            "views": [
+              {
+                "connection": "jump-test-1",
+                "session": "jump-test-1",
+                "window_id": 231,
+                "pid": 32740,
+                "start_ticks": "429388134",
+                "owner_pid": 32740,
+                "owner_start_ticks": "429388134",
+                "active": true,
+                "position": {
+                  "output": "HDMI-A-1",
+                  "workspace": 4,
+                  "row": 1,
+                  "column": 1,
+                  "floating": false
+                }
+              }
+            ]
+          }
+        ],
+        "niri_connected": true,
+        "focused_window": 231
+      }
+    },
+    {
+      "cli": "已跳到窗口 232（jump-test-2）",
+      "after": {
+        "pending_count": 0,
+        "sessions": [
+          {
+            "id": "jump-test-2",
+            "title": "",
+            "cwd": "",
+            "phase": "done",
+            "turn_id": "test-turn",
+            "pending": false,
+            "reason": "done",
+            "updated": 1793671560.4658003,
+            "views": [
+              {
+                "connection": "jump-test-2",
+                "session": "jump-test-2",
+                "window_id": 232,
+                "pid": 32772,
+                "start_ticks": "429388157",
+                "owner_pid": 32772,
+                "owner_start_ticks": "429388157",
+                "active": true,
+                "position": {
+                  "output": "HDMI-A-1",
+                  "workspace": 4,
+                  "row": 1,
+                  "column": 2,
+                  "floating": false
+                }
+              }
+            ]
+          },
+          {
+            "id": "jump-test-1",
+            "title": "",
+            "cwd": "",
+            "phase": "done",
+            "turn_id": "test-turn",
+            "pending": false,
+            "reason": "done",
+            "updated": 1793671560.445063,
+            "views": [
+              {
+                "connection": "jump-test-1",
+                "session": "jump-test-1",
+                "window_id": 231,
+                "pid": 32740,
+                "start_ticks": "429388134",
+                "owner_pid": 32740,
+                "owner_start_ticks": "429388134",
+                "active": true,
+                "position": {
+                  "output": "HDMI-A-1",
+                  "workspace": 4,
+                  "row": 1,
+                  "column": 1,
+                  "floating": false
+                }
+              }
+            ]
+          }
+        ],
+        "niri_connected": true,
+        "focused_window": 232
+      }
+    },
+    {
+      "empty_queue": "没有可跳转的已完成待查看会话",
+      "focus_unchanged": true
+    }
+  ],
+  "test_windows_closed": true,
+  "original_focus_restored": 202
+}

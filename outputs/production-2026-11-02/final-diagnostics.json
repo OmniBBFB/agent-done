@@ -1,0 +1,161 @@
+{
+  "service": "active",
+  "enabled": "enabled",
+  "diagnostics": {
+    "ok": true,
+    "snapshot": {
+      "pending_count": 0,
+      "sessions": [],
+      "niri_connected": true,
+      "focused_window": 202
+    },
+    "hooks": [
+      {
+        "session": "01a19b79-51f6-74a2-b32a-af91770d75b7",
+        "event": "Stop",
+        "turn_id": "01a19bab-ef74-7850-a678-4c723420faf3",
+        "created": 1793613102.4559803
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "Stop",
+        "turn_id": "01a19bab-eb4e-7e10-beb2-1c7abcd0f88d",
+        "created": 1793613100.9255073
+      },
+      {
+        "session": "01a19b79-51f6-74a2-b32a-af91770d75b7",
+        "event": "UserPromptSubmit",
+        "turn_id": "01a19bab-ef74-7850-a678-4c723420faf3",
+        "created": 1793613098.9112725
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "UserPromptSubmit",
+        "turn_id": "01a19bab-eb4e-7e10-beb2-1c7abcd0f88d",
+        "created": 1793613097.8510349
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "Stop",
+        "turn_id": "01a19b9a-3ce9-7ec3-aece-f0464b81b1bb",
+        "created": 1793611947.840289
+      },
+      {
+        "session": "01a19b79-51f6-74a2-b32a-af91770d75b7",
+        "event": "Stop",
+        "turn_id": "01a19b9a-40b8-76e2-af7b-24917392f744",
+        "created": 1793611942.691177
+      },
+      {
+        "session": "01a19b79-51f6-74a2-b32a-af91770d75b7",
+        "event": "UserPromptSubmit",
+        "turn_id": "01a19b9a-40b8-76e2-af7b-24917392f744",
+        "created": 1793611940.0700083
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "UserPromptSubmit",
+        "turn_id": "01a19b9a-3ce9-7ec3-aece-f0464b81b1bb",
+        "created": 1793611939.0955274
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "Stop",
+        "turn_id": "01a19b79-579a-7d01-9798-0b8c99b85510",
+        "created": 1793609787.3997447
+      },
+      {
+        "session": "01a19b79-51f6-74a2-b32a-af91770d75b7",
+        "event": "Stop",
+        "turn_id": "01a19b79-5a98-7423-be7d-555647277c75",
+        "created": 1793609787.249717
+      },
+      {
+        "session": "01a19b79-51f6-74a2-b32a-af91770d75b7",
+        "event": "UserPromptSubmit",
+        "turn_id": "01a19b79-5a98-7423-be7d-555647277c75",
+        "created": 1793609784.6509056
+      },
+      {
+        "session": "01a19b79-51f6-74a2-b32a-af91770d75b7",
+        "event": "SessionStart",
+        "turn_id": "",
+        "created": 1793609784.592426
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "UserPromptSubmit",
+        "turn_id": "01a19b79-579a-7d01-9798-0b8c99b85510",
+        "created": 1793609783.9380643
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "SessionStart",
+        "turn_id": "",
+        "created": 1793609783.8881958
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "Stop",
+        "turn_id": "01a19b47-58b0-7521-9bb3-bd70e9de976a",
+        "created": 1793607409.4724793
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "UserPromptSubmit",
+        "turn_id": "01a19b47-58b0-7521-9bb3-bd70e9de976a",
+        "created": 1793606506.726631
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "Stop",
+        "turn_id": "01a19b45-d1cc-7310-af86-5d018219797f",
+        "created": 1793606418.225372
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "PermissionRequest",
+        "turn_id": "01a19b45-d1cc-7310-af86-5d018219797f",
+        "created": 1793606409.8975356
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "UserPromptSubmit",
+        "turn_id": "01a19b45-d1cc-7310-af86-5d018219797f",
+        "created": 1793606406.6504653
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "Stop",
+        "turn_id": "01a19b44-92db-7901-b7cc-dd22d257ba3b",
+        "created": 1793606328.1029882
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "UserPromptSubmit",
+        "turn_id": "01a19b44-92db-7901-b7cc-dd22d257ba3b",
+        "created": 1793606325.0033283
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "Stop",
+        "turn_id": "01a19b43-ec41-71d2-9c28-a8f684a72ebe",
+        "created": 1793606286.6656487
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "UserPromptSubmit",
+        "turn_id": "01a19b43-ec41-71d2-9c28-a8f684a72ebe",
+        "created": 1793606282.9874957
+      },
+      {
+        "session": "01a19b14-1495-7a62-863e-8f5708c41545",
+        "event": "SessionStart",
+        "turn_id": "",
+        "created": 1793606282.9409215
+      }
+    ],
+    "subscribers": 2
+  },
+  "fallback_test_cleanup": "empty thread: no rollout found, no persisted test conversation"
+}

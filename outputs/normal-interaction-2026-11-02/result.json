@@ -1,0 +1,294 @@
+{
+  "artifacts": "/tmp/agent-done-normal-cycemtuy",
+  "input_path": "real Alacritty -> PTY -> Codex TUI",
+  "control_rpc_trigger": false,
+  "bypass_hook_trust": false,
+  "model_routing_changed": false,
+  "rounds": [
+    {
+      "mode": "new",
+      "binding": {
+        "window_id": 210,
+        "alacritty_pid": 3484654,
+        "niri_socket": "/run/user/1000/niri.wayland-1.11902.sock",
+        "artifacts": "/tmp/agent-done-normal-cycemtuy/new",
+        "initial_position": {
+          "window_id": 210,
+          "window_pid": 3484654,
+          "workspace_id": 6,
+          "workspace_index": 1,
+          "output": "HDMI-A-1",
+          "column": 5,
+          "row": 1
+        },
+        "tui_pid": 3484679,
+        "tty": "/dev/pts/13",
+        "proc_start_ticks": "420946458",
+        "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+        "active": true
+      },
+      "replies": [
+        "AGENT_DONE_NORMAL_OK",
+        "AGENT_DONE_SECOND_OK"
+      ],
+      "hooks": [
+        {
+          "event": "SessionStart",
+          "source": "startup",
+          "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+          "hook_pid": 3484837,
+          "hook_parent_pid": 1066499,
+          "binding": {
+            "window_id": 210,
+            "alacritty_pid": 3484654,
+            "niri_socket": "/run/user/1000/niri.wayland-1.11902.sock",
+            "artifacts": "/tmp/agent-done-normal-cycemtuy/new",
+            "initial_position": {
+              "window_id": 210,
+              "window_pid": 3484654,
+              "workspace_id": 6,
+              "workspace_index": 1,
+              "output": "HDMI-A-1",
+              "column": 5,
+              "row": 1
+            },
+            "tui_pid": 3484679,
+            "tty": "/dev/pts/13",
+            "proc_start_ticks": "420946458",
+            "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+            "active": true
+          },
+          "timestamp": 1793587148.2750506,
+          "current_position": {
+            "window_id": 210,
+            "window_pid": 3484654,
+            "workspace_id": 6,
+            "workspace_index": 1,
+            "output": "HDMI-A-1",
+            "column": 5,
+            "row": 1
+          }
+        },
+        {
+          "event": "Stop",
+          "source": null,
+          "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+          "hook_pid": 3484875,
+          "hook_parent_pid": 1066499,
+          "binding": {
+            "window_id": 210,
+            "alacritty_pid": 3484654,
+            "niri_socket": "/run/user/1000/niri.wayland-1.11902.sock",
+            "artifacts": "/tmp/agent-done-normal-cycemtuy/new",
+            "initial_position": {
+              "window_id": 210,
+              "window_pid": 3484654,
+              "workspace_id": 6,
+              "workspace_index": 1,
+              "output": "HDMI-A-1",
+              "column": 5,
+              "row": 1
+            },
+            "tui_pid": 3484679,
+            "tty": "/dev/pts/13",
+            "proc_start_ticks": "420946458",
+            "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+            "active": true
+          },
+          "timestamp": 1793587150.487858,
+          "current_position": {
+            "window_id": 210,
+            "window_pid": 3484654,
+            "workspace_id": 6,
+            "workspace_index": 1,
+            "output": "HDMI-A-1",
+            "column": 5,
+            "row": 1
+          }
+        },
+        {
+          "event": "Stop",
+          "source": null,
+          "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+          "hook_pid": 3484900,
+          "hook_parent_pid": 1066499,
+          "binding": {
+            "window_id": 210,
+            "alacritty_pid": 3484654,
+            "niri_socket": "/run/user/1000/niri.wayland-1.11902.sock",
+            "artifacts": "/tmp/agent-done-normal-cycemtuy/new",
+            "initial_position": {
+              "window_id": 210,
+              "window_pid": 3484654,
+              "workspace_id": 6,
+              "workspace_index": 1,
+              "output": "HDMI-A-1",
+              "column": 5,
+              "row": 1
+            },
+            "tui_pid": 3484679,
+            "tty": "/dev/pts/13",
+            "proc_start_ticks": "420946458",
+            "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+            "active": true
+          },
+          "timestamp": 1793587153.1947575,
+          "current_position": {
+            "window_id": 210,
+            "window_pid": 3484654,
+            "workspace_id": 6,
+            "workspace_index": 1,
+            "output": "HDMI-A-1",
+            "column": 5,
+            "row": 1
+          }
+        }
+      ],
+      "binding_after_close": {
+        "window_id": 210,
+        "alacritty_pid": 3484654,
+        "niri_socket": "/run/user/1000/niri.wayland-1.11902.sock",
+        "artifacts": "/tmp/agent-done-normal-cycemtuy/new",
+        "initial_position": {
+          "window_id": 210,
+          "window_pid": 3484654,
+          "workspace_id": 6,
+          "workspace_index": 1,
+          "output": "HDMI-A-1",
+          "column": 5,
+          "row": 1
+        },
+        "tui_pid": 3484679,
+        "tty": "/dev/pts/13",
+        "proc_start_ticks": "420946458",
+        "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+        "active": false
+      },
+      "window_after_close": null
+    },
+    {
+      "mode": "resume",
+      "binding": {
+        "window_id": 211,
+        "alacritty_pid": 3484930,
+        "niri_socket": "/run/user/1000/niri.wayland-1.11902.sock",
+        "artifacts": "/tmp/agent-done-normal-cycemtuy/resume",
+        "initial_position": {
+          "window_id": 211,
+          "window_pid": 3484930,
+          "workspace_id": 6,
+          "workspace_index": 1,
+          "output": "HDMI-A-1",
+          "column": 5,
+          "row": 1
+        },
+        "tui_pid": 3484953,
+        "tty": "/dev/pts/13",
+        "proc_start_ticks": "420947777",
+        "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+        "active": true
+      },
+      "replies": [
+        "AGENT_DONE_RESUME_OK"
+      ],
+      "hooks": [
+        {
+          "event": "SessionStart",
+          "source": "resume",
+          "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+          "hook_pid": 3485148,
+          "hook_parent_pid": 1066499,
+          "binding": {
+            "window_id": 211,
+            "alacritty_pid": 3484930,
+            "niri_socket": "/run/user/1000/niri.wayland-1.11902.sock",
+            "artifacts": "/tmp/agent-done-normal-cycemtuy/resume",
+            "initial_position": {
+              "window_id": 211,
+              "window_pid": 3484930,
+              "workspace_id": 6,
+              "workspace_index": 1,
+              "output": "HDMI-A-1",
+              "column": 5,
+              "row": 1
+            },
+            "tui_pid": 3484953,
+            "tty": "/dev/pts/13",
+            "proc_start_ticks": "420947777",
+            "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+            "active": true
+          },
+          "timestamp": 1793587161.403931,
+          "current_position": {
+            "window_id": 211,
+            "window_pid": 3484930,
+            "workspace_id": 6,
+            "workspace_index": 1,
+            "output": "HDMI-A-1",
+            "column": 5,
+            "row": 1
+          }
+        },
+        {
+          "event": "Stop",
+          "source": null,
+          "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+          "hook_pid": 3485154,
+          "hook_parent_pid": 1066499,
+          "binding": {
+            "window_id": 211,
+            "alacritty_pid": 3484930,
+            "niri_socket": "/run/user/1000/niri.wayland-1.11902.sock",
+            "artifacts": "/tmp/agent-done-normal-cycemtuy/resume",
+            "initial_position": {
+              "window_id": 211,
+              "window_pid": 3484930,
+              "workspace_id": 6,
+              "workspace_index": 1,
+              "output": "HDMI-A-1",
+              "column": 5,
+              "row": 1
+            },
+            "tui_pid": 3484953,
+            "tty": "/dev/pts/13",
+            "proc_start_ticks": "420947777",
+            "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+            "active": true
+          },
+          "timestamp": 1793587163.5342972,
+          "current_position": {
+            "window_id": 211,
+            "window_pid": 3484930,
+            "workspace_id": 6,
+            "workspace_index": 1,
+            "output": "HDMI-A-1",
+            "column": 5,
+            "row": 1
+          }
+        }
+      ],
+      "binding_after_close": {
+        "window_id": 211,
+        "alacritty_pid": 3484930,
+        "niri_socket": "/run/user/1000/niri.wayland-1.11902.sock",
+        "artifacts": "/tmp/agent-done-normal-cycemtuy/resume",
+        "initial_position": {
+          "window_id": 211,
+          "window_pid": 3484930,
+          "workspace_id": 6,
+          "workspace_index": 1,
+          "output": "HDMI-A-1",
+          "column": 5,
+          "row": 1
+        },
+        "tui_pid": 3484953,
+        "tty": "/dev/pts/13",
+        "proc_start_ticks": "420947777",
+        "session_id": "01a19a1f-e2e8-74a2-9d54-36af3cfc8512",
+        "active": false
+      },
+      "window_after_close": null
+    }
+  ],
+  "passed": true
+}
