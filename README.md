@@ -2,6 +2,22 @@
 
 在 Waybar 显示需要查看的 Codex 会话个数，并在悬浮提示中显示对应终端的位置。初版针对本机 Linux + Codex CLI + Alacritty + niri + Waybar。
 
+当前桌面终端已迁移到 Kitty，Alacritty 仍可使用。生产代码通过进程父链与 niri 窗口 PID 关联，
+不要求终端名为 Alacritty。每个 agent 使用独立 OS 窗口；不要把不同 agent 放进同一 Kitty
+窗口的标签页或分屏，当前提醒和跳转按 niri 窗口处理，不能区分这些内部区域。
+Linux 的 niri/Waybar 通知集成不直接适用于 macOS。
+
+终端验收工具默认使用 Kitty，`tools/acceptance.py start ... --terminal alacritty` 和
+`tools/validate_jump.py --terminal alacritty` 可继续检查旧终端。
+Kitty 窗口识别与授权/提问跳转验证：
+
+```sh
+.venv/bin/python tools/validate_jump.py --terminal kitty --pending-requests --output /tmp/agent-done-kitty.json
+```
+
+该验证创建隔离提醒服务及两个临时真实窗口；提醒事件为测试数据，不发起模型请求，
+不修改生产通知，结束后关闭测试窗口并恢复焦点。
+
 ## 日常使用
 
 ```sh
@@ -16,10 +32,6 @@ agent-done doctor
 
 首次启动时用 Codex 的 `/hooks` 界面审阅并信任 agent-done 的命令 hook：`<项目虚拟环境>/bin/python3 -m agent_done hook`。命令固定，恢复会话不需要每次重新信任。审阅时保留你已有 hook 的信任判断。
 
-从该入口新启动或恢复的交互终端中，输入整行 `:q` 再回车即可退出。`UserPromptSubmit` hook 精确匹配后阻止提示词提交，启动器等该轮结束，再通过 PTY 执行 Codex 原生 `/quit`。包含 `:q` 的普通句子、带空格的 ` :q` 等均照常提交。规则入口是 `src/agent_done/prompt_rules.py`。
-
-更新前已运行的窗口需先用 `/quit` 退出，再通过 `agent-done codex resume <会话ID>` 恢复，以加载新的终端控制桥接。普通 `codex` 入口和提醒不可用时的降级入口不提供 `:q` 退出。此动作退出当前客户端；Codex 共享 daemon 和其他窗口继续运行。
-
 Waybar 显示 `Codex 0`、`Codex 1` 等。悬浮查看会话名称、提醒原因和 `显示器 · 工作区 · 第几行第几列`；浮动窗口单独标记。位置跟随 niri 的实时布局更新。
 
 - 后台生成完成：计入待查看；失败也提醒，中断不计入完成。
@@ -32,18 +44,18 @@ Waybar 显示 `Codex 0`、`Codex 1` 等。悬浮查看会话名称、提醒原�
 
 手动清除提醒：`agent-done ack`，或 `agent-done ack --session <ID>`。这些操作只改变通知的查看状态。
 
-## 跳到已完成的会话
+## 跳到待介入的会话
 
-本机已配置 **Mod+N**（通常为 Super/Win+N）。按一次跳到最早完成、尚未查看的会话窗口；切回后原有焦点监听会清除该提醒，再按一次跳到下一个。没有可跳转的会话时不切换窗口。
+本机已配置 **Mod+N**（通常为 Super/Win+N）。按一次跳到最早需要介入、尚未查看的会话窗口；切回后原有焦点监听会清除该提醒，再按一次跳到下一个。没有可跳转的会话时不切换窗口。
 
-对应命令是 `agent-done jump`。按完成时间排序，只选择仍在终端中显示的已完成会话；等待授权、等待回答、失败和已查看的会话不参与这个快捷键。已关闭的窗口和失效进程会跳过，同一终端内的隐藏会话保留提醒，避免跳到其他会话后误清除。
+对应命令是 `agent-done jump`。与状态栏计数使用同一个 `pending` 条件，覆盖生成完成、等待授权、等待回答和执行失败，按会话最近一次状态更新时间从早到晚选择。已查看的会话、已关闭的窗口和失效进程会跳过，同一终端内的隐藏会话保留提醒，避免跳到其他会话后误清除。查看授权或问题仅清除提醒，请求仍等待你实际操作。
 
 实现通过会话映射取得窗口 ID，再调用 `niri msg action focus-window --id ...`。跨显示器、工作区由 niri 处理，窗口行列不参与排序。跳转命令不会主动清除提醒，实际聚焦后才由监听器确认已查看；跳转失败时提醒保留。
 
 本机 `~/.config/niri/config.kdl` 的已有 `binds` 中加入了下面的绑定，修改前已备份：
 
 ```kdl
-Mod+N repeat=false hotkey-overlay-title="查看最早完成的 Codex 会话" {
+Mod+N repeat=false hotkey-overlay-title="查看最早待介入的 Codex 会话" {
     spawn "/home/csc/.local/bin/agent-done" "jump";
 }
 ```
@@ -109,8 +121,8 @@ hook 仅发送事件类型、会话 ID、回合 ID 和来源，短超时、失�
 uv run python -m unittest discover -s tests -v
 ```
 
-测试覆盖会话去重、并发状态、恢复、焦点清除、隐藏会话、请求生命周期、内部线程过滤、配置合并、安装及 Waybar 输出。真实桌面验收工具是 `tools/acceptance.py`，通过实际 Alacritty 和 Codex TUI 输入操作；旧研究脚本保留在 `tools/`，不用于日常启动。
+测试覆盖会话去重、并发状态、恢复、焦点清除、隐藏会话、请求生命周期、内部线程过滤、配置合并、安装及 Waybar 输出。真实桌面验收工具是 `tools/acceptance.py`，通过实际 Kitty 或 Alacritty 窗口和 Codex TUI 输入操作；旧研究脚本保留在 `tools/`，不用于日常启动。
 
-当前 33 项自动测试通过。完成、授权、结构化提问、恢复、并发和窗口生命周期的真实桌面验收见[正式版验收记录](docs/production-acceptance-2026-11-02.md)；新增跳转命令和真实窗口聚焦验收见[快捷键验收记录](docs/jump-2026-11-03.md)，`:q` 的拦截与正常退出见[提示词规则验收](docs/prompt-rules-2026-11-03.md)。退出时 Codex 原生提示可能包含临时连接地址，恢复时请使用 `agent-done codex resume <ID>`；恢复沿用会话已有权限设置。
+当前 29 项自动测试通过。完成、授权、结构化提问、恢复、并发和窗口生命周期的真实桌面验收见[正式版验收记录](docs/production-acceptance-2026-11-02.md)；新增跳转命令和真实窗口聚焦验收见[快捷键验收记录](docs/jump-2026-11-03.md)。退出时 Codex 原生提示可能包含临时连接地址，恢复时请使用 `agent-done codex resume <ID>`；恢复沿用会话已有权限设置。
 
 调研背景见[原始记录](docs/research-notes.md)、[会话映射实验](docs/session-pid-mapping.md)和[前期正常交互验证](docs/normal-interaction-2026-11-02.md)。

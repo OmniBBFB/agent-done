@@ -194,8 +194,9 @@ def parallel(artifacts, resumed, second, original):
                    check=True, capture_output=True)
     row = wait(lambda: s if (s := session(second))["views"][0]["position"]["workspace"] == target else None, 5)
     record(artifacts, "live_position_after_move", {"before": before, "after": row})
-    # Close exactly the second test's Alacritty to exercise abrupt view cleanup.
-    pid = json.loads((second / "window.json").read_text())["alacritty_pid"]
+    # Close exactly the second test's terminal to exercise abrupt view cleanup.
+    metadata = json.loads((second / "window.json").read_text())
+    pid = metadata.get("terminal_pid", metadata.get("alacritty_pid"))
     os.kill(pid, 15)
     wait(lambda: session(second) is None, 10)
     assert request({"op": "status"})["snapshot"]["pending_count"] == 0

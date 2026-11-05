@@ -21,20 +21,15 @@ def logging_setup():
 
 
 def hook():
-    result = {}
     try:
         from .ipc import request
-        from .prompt_rules import prompt_result
         event = json.loads(sys.stdin.read(8 * 1024 * 1024))
-        if not isinstance(event, dict):
-            raise ValueError("invalid hook event")
-        result = prompt_result(event)
         # Never retain prompts, tool arguments, credentials or assistant text.
         selected = {k: event[k] for k in ("session_id", "turn_id", "hook_event_name", "source") if k in event}
         request({"op": "hook", "event": selected}, timeout=0.4)
     except (OSError, ValueError, RuntimeError):
         pass
-    print(json.dumps(result))
+    print("{}")
 
 
 def main(argv=None):
@@ -57,7 +52,7 @@ def main(argv=None):
         commands.add_parser("codex", help="启动或恢复受跟踪的 Codex；参数原样传递")
         commands.add_parser("serve", help="运行本机提醒服务")
         commands.add_parser("waybar", help="向 Waybar 连续输出 JSON")
-        commands.add_parser("jump", help="跳到最早完成且尚未查看的会话窗口")
+        commands.add_parser("jump", help="跳到最早需要介入且尚未查看的会话窗口")
         status = commands.add_parser("status", help="查看会话状态")
         status.add_argument("--json", action="store_true")
         ack = commands.add_parser("ack", help="手动清除提醒（默认全部）")
@@ -80,7 +75,7 @@ def main(argv=None):
         elif args.command == "jump":
             from .navigation import jump
             target = jump()
-            print(f"已跳到窗口 {target['window_id']}（{target['session']}）" if target else "没有可跳转的已完成待查看会话")
+            print(f"已跳到窗口 {target['window_id']}（{target['session']}）" if target else "没有可跳转的待介入会话")
         elif args.command == "doctor":
             from .desktop import niri_socket, niri_query
             from .ipc import request

@@ -1,4 +1,4 @@
-"""Navigation uses completion order and live active views; focus acknowledges."""
+"""Navigation follows pending attention order; actual focus acknowledges."""
 
 import subprocess
 import unittest
@@ -42,13 +42,34 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(kwargs["env"]["NIRI_SOCKET"], "/tmp/niri-test.sock")
         self.assertTrue(all(call.args[0] == {"op": "status"} for call in self.ipc.call_args_list))
 
-    def test_approval_question_error_and_seen_completion_are_not_targets(self):
-        for sid, kind in (("a", "approval"), ("q", "question")):
-            self.state.bind(sid, sid, {"window_id": 10, "pid": 1, "start_ticks": "123"})
+    def test_all_pending_kinds_follow_attention_order_and_focus_advances(self):
+        self.query.return_value = [{"id": n} for n in (10, 20, 30, 40)]
+        self.done("completed", 30, 30)
+        self.done("failed", 40, 40)
+        self.state.running("failed", "failed-turn")
+        self.state.complete("failed", "failed-turn", "failed")
+        for sid, kind, window, updated in (("approval", "approval", 10, 10),
+                                           ("question", "question", 20, 20)):
+            self.state.bind(sid, sid, {"window_id": window, "pid": 1, "start_ticks": "123"})
             self.state.request_open(sid, sid, "turn", "request", kind)
+            with self.state.db:
+                self.state.db.execute("UPDATE sessions SET updated=? WHERE id=?", (updated, sid))
+        self.assertEqual(self.state.snapshot()["pending_count"], 4)
+        for remaining, sid, window in ((4, "approval", 10), (3, "question", 20),
+                                        (2, "completed", 30), (1, "failed", 40)):
+            self.assertEqual(jump(), {"session": sid, "window_id": window})
+            self.assertEqual(self.state.snapshot()["pending_count"], remaining)
+            self.state.focus(window)
+        self.assertEqual(self.state.snapshot()["pending_count"], 0)
+        self.assertIsNone(jump())
+        # Viewing a request doesn't answer or approve it.
+        self.assertEqual(self.state.db.execute("SELECT COUNT(*) FROM requests").fetchone()[0], 2)
+
+    def test_seen_error_and_seen_completion_are_not_targets(self):
         self.done("failed", 10, 1)
         self.state.running("failed", "failed-turn")
         self.state.complete("failed", "failed-turn", "failed")
+        self.state.ack("failed")
         self.done("seen", 20, 2)
         self.state.ack("seen")
         self.assertIsNone(jump())

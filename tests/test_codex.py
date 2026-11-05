@@ -1,9 +1,45 @@
 import copy
+from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 
-from agent_done.codex import Observer, HOOK_EVENTS, hook_command, with_hooks
+from agent_done.codex import Observer, HOOK_EVENTS, hook_command, launch, with_hooks
 from agent_done.state import State
 from agent_done.runtime import Runtime
+
+
+class LaunchDirectoryTests(unittest.IsolatedAsyncioTestCase):
+    async def launch_command(self, arguments):
+        with tempfile.TemporaryDirectory() as directory:
+            socket = Path(directory) / "daemon.sock"
+            socket.touch()
+            process = AsyncMock()
+            process.wait.return_value = 0
+            process.returncode = 0
+            with patch("agent_done.codex.shutil.which", return_value="/bin/codex"), \
+                 patch("agent_done.codex.window_identity", return_value={}), \
+                 patch("agent_done.codex.ensure_service", new=AsyncMock()), \
+                 patch("agent_done.codex.async_request", new=AsyncMock()), \
+                 patch("agent_done.codex.codex_socket", return_value=socket), \
+                 patch("agent_done.codex.runtime_dir", return_value=Path(directory)), \
+                 patch("agent_done.codex.asyncio.create_subprocess_exec", new=AsyncMock(return_value=process)) as spawn:
+                await launch(arguments)
+                return spawn.call_args.args
+
+    async def test_remote_launch_passes_callers_directory(self):
+        command = await self.launch_command([])
+        self.assertIn("--cd", command)
+        self.assertEqual(command[command.index("--cd") + 1], str(Path.cwd()))
+
+    async def test_explicit_directory_is_preserved_without_duplicate_option(self):
+        for arguments in (["-C", "/chosen"], ["--cd", "/chosen"],
+                          ["--cd=/chosen"], ["-C/chosen"],
+                          ["resume", "--cd", "/chosen", "--last"]):
+            with self.subTest(arguments=arguments):
+                command = await self.launch_command(arguments)
+                self.assertEqual(list(command[-len(arguments):]), arguments)
+                self.assertNotIn(str(Path.cwd()), command)
 
 
 class CodexTests(unittest.IsolatedAsyncioTestCase):

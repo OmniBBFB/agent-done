@@ -1,4 +1,4 @@
-"""Focus the oldest unread completed conversation using its live window ID."""
+"""Focus the oldest pending conversation using its live window ID."""
 
 import os
 import subprocess
@@ -14,13 +14,13 @@ def _alive(view):
 
 def jump():
     snapshot = request({"op": "status"})["snapshot"]
-    completed = sorted((s for s in snapshot["sessions"] if s["pending"] and s["phase"] == "done"),
+    pending = sorted((s for s in snapshot["sessions"] if s["pending"]),
                        key=lambda s: (s["updated"], s["id"]))
-    if not completed:
+    if not pending:
         return None
     socket_path = niri_socket()
     windows = {w["id"] for w in niri_query("windows", socket_path)}
-    for session in completed:
+    for session in pending:
         for view in sorted(session["views"], key=lambda v: v["window_id"] or 0):
             if not view["active"] or view["window_id"] not in windows or not _alive(view):
                 continue

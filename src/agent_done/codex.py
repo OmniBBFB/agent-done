@@ -21,8 +21,6 @@ from websockets.exceptions import ConnectionClosed
 from .desktop import codex_pid, start_ticks, window_identity
 from .ipc import async_request, request
 from .paths import codex_socket, private_dir, runtime_dir, state_dir
-from .prompt_rules import CLIENT_EXIT_REASON
-from .terminal import Terminal
 
 LOG = logging.getLogger(__name__)
 HOOK_EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "PermissionRequest", "Interrupt")
@@ -72,8 +70,6 @@ class Observer:
         self.client_requests = {}
         self.server_requests = {}
         self.sessions = set()
-        self.active_session = None
-        self.action_turns = {}
 
     async def client(self, message):
         result = copy.deepcopy(message)
@@ -102,20 +98,11 @@ class Observer:
                 if thread and request_method in ("thread/start", "thread/resume", "thread/fork") and not internal:
                     sid = thread["id"]
                     self.sessions.add(sid)
-                    self.active_session = sid
                     await self.emit({"op": "bind", "connection": self.connection, "session": sid,
                                      "identity": self.identity(), "title": thread.get("name") or "",
                                      "cwd": thread.get("cwd") or ""})
                 elif request_method == "thread/unsubscribe" and requested_sid in self.sessions and "error" not in message:
                     await self.emit({"op": "deactivate", "connection": self.connection, "session": requested_sid})
-                    if self.active_session == requested_sid:
-                        self.active_session = None
-                elif request_method == "turn/start" and requested_sid in self.sessions:
-                    turn = (message.get("result") or {}).get("turn")
-                    if turn:
-                        action = self.action_state(requested_sid, turn["id"])
-                        action.add("owned")
-                        return self.take_action(requested_sid, turn["id"])
         if sid not in self.sessions:
             return
         if method == "turn/started":
@@ -123,16 +110,6 @@ class Observer:
         elif method == "turn/completed":
             turn = params["turn"]
             await self.emit({"op": "complete", "session": sid, "turn": turn["id"], "status": turn["status"]})
-            self.action_state(sid, turn["id"]).add("completed")
-            return self.take_action(sid, turn["id"])
-        elif method == "hook/completed":
-            run = params.get("run") or {}
-            if (params.get("turnId") and run.get("eventName") == "userPromptSubmit"
-                    and run.get("handlerType") == "command" and run.get("status") == "blocked"
-                    and any(entry.get("text") == CLIENT_EXIT_REASON
-                            for entry in run.get("entries", []) if entry.get("kind") == "feedback")):
-                self.action_state(sid, params["turnId"]).add("client_exit")
-                return self.take_action(sid, params["turnId"])
         elif method in APPROVAL_METHODS | QUESTION_METHODS and "id" in message:
             raw_key = rpc_key(message["id"])
             request_key = self.connection + ":" + raw_key
@@ -149,22 +126,6 @@ class Observer:
         elif method in ("thread/archived", "thread/deleted", "thread/closed"):
             await self.emit({"op": "remove", "session": sid})
             self.sessions.discard(sid)
-            if self.active_session == sid:
-                self.active_session = None
-
-    def action_state(self, sid, tid):
-        key = (sid, tid)
-        if key not in self.action_turns:
-            if len(self.action_turns) >= 128:
-                del self.action_turns[next(iter(self.action_turns))]
-            self.action_turns[key] = set()
-        return self.action_turns[key]
-
-    def take_action(self, sid, tid):
-        state = self.action_state(sid, tid)
-        if sid == self.active_session and state == {"owned", "completed", "client_exit"}:
-            state.add("consumed")
-            return "client_exit"
 
 
 async def ensure_service():
@@ -193,6 +154,7 @@ async def ensure_service():
 
 
 async def launch(arguments):
+    launch_cwd = os.getcwd()
     executable = shutil.which("codex")
     if not executable:
         raise RuntimeError("PATH 中没有 codex")
@@ -243,18 +205,14 @@ async def launch(arguments):
                         except (ValueError, TypeError):
                             await target.send(raw)
                             continue
-                        action = None
                         try:
                             if from_client:
                                 message = await observer.client(message)
                             else:
-                                action = await observer.server(message)
+                                await observer.server(message)
                         except (KeyError, TypeError, ValueError):
                             LOG.exception("unrecognized Codex event; forwarding unchanged")
                         await target.send(json.dumps(message))
-                        if not from_client and action == "client_exit":
-                            if not process.request_exit():
-                                LOG.warning("client_exit needs an interactive terminal")
                 tasks = [asyncio.create_task(forward(client, upstream, True)),
                          asyncio.create_task(forward(upstream, client, False))]
                 try:
@@ -280,10 +238,15 @@ async def launch(arguments):
             for event in HOOK_EVENTS:
                 command = '[{hooks=[{type="command",command=' + json.dumps(hook_command()) + ',timeout=3}]}]'
                 hooks += ["-c", "hooks." + event + "=" + command]
-            process = await Terminal.start(executable, "--remote", "unix://" + str(proxy_socket),
-                                           *hooks, *arguments)
-            # Ctrl-C reaches Codex through PTY input; keep the supervisor alive
-            # so interrupting a turn does not lose tracking.
+            # Remote TUI sessions otherwise default to the daemon's directory.
+            # Preserve an explicitly requested workspace, including resume flags.
+            options = arguments[:arguments.index("--")] if "--" in arguments else arguments
+            directory = [] if any(a == "--cd" or a.startswith("--cd=") or a.startswith("-C")
+                                  for a in options) else ["--cd", launch_cwd]
+            process = await asyncio.create_subprocess_exec(executable, "--remote", "unix://" + str(proxy_socket),
+                                                           *hooks, *directory, *arguments)
+            # Child inherits normal terminal signals; only the supervisor ignores
+            # Ctrl-C so Codex itself can interrupt a turn without losing tracking.
             previous_int = signal.signal(signal.SIGINT, lambda *args: None)
             loop = asyncio.get_running_loop()
             def terminate():

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Real-desktop acceptance helpers for the installed production launcher.
 
-The bridge forwards Alacritty keyboard input and terminal replies through a PTY.
+The bridge forwards terminal keyboard input and terminal replies through a PTY.
 Automation writes only the same terminal input, never turn/start RPC calls.
 Raw test terminal output stays in a private temporary directory.
 """
@@ -21,6 +21,7 @@ import time
 import tty
 
 from normal_interaction_probe import append, input_data, submit, transcript, write_json
+from terminal_launcher import desktop_environment, terminal_command
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = Path.home() / ".local/bin/agent-done"
@@ -83,17 +84,17 @@ def terminal(artifacts, resume=None):
         write_json(artifacts / "terminal-exit.json", {"exit_code": os.waitstatus_to_exitcode(status)})
 
 
-def start(artifacts, resume=None):
+def start(artifacts, resume=None, terminal_name='kitty'):
     artifacts.mkdir(parents=True, mode=0o700)
-    args = ["alacritty", "--class", "agent-done-acceptance", "--title", "agent-done acceptance",
-            "-e", str(PYTHON), str(Path(__file__).resolve()), "terminal", str(artifacts)]
+    args = terminal_command(terminal_name, 'agent-done-acceptance', 'agent-done acceptance',
+                            [PYTHON, Path(__file__).resolve(), 'terminal', artifacts])
     if resume:
         args += ["--resume", resume]
-    env = dict(os.environ, XDG_RUNTIME_DIR=f"/run/user/{os.getuid()}", WAYLAND_DISPLAY="wayland-1")
-    with (artifacts / "alacritty.log").open("w") as log:
+    env = desktop_environment()
+    with (artifacts / f"{terminal_name}.log").open("w") as log:
         process = subprocess.Popen(args, env=env, stdout=subprocess.DEVNULL, stderr=log, start_new_session=True)
-    write_json(artifacts / "window.json", {"alacritty_pid": process.pid})
-    print(json.dumps({"artifacts": str(artifacts), "alacritty_pid": process.pid}), flush=True)
+    write_json(artifacts / "window.json", {"terminal": terminal_name, "terminal_pid": process.pid})
+    print(json.dumps({"artifacts": str(artifacts), "terminal": terminal_name, "terminal_pid": process.pid}), flush=True)
 
 
 def status(artifacts):
@@ -115,11 +116,12 @@ if __name__ == "__main__":
     parser.add_argument("artifacts", type=Path)
     parser.add_argument("text", nargs="?")
     parser.add_argument("--resume")
+    parser.add_argument("--terminal", choices=('kitty', 'alacritty'), default='kitty')
     args = parser.parse_args()
     if args.action == "terminal":
         terminal(args.artifacts, args.resume)
     elif args.action == "start":
-        start(args.artifacts, args.resume)
+        start(args.artifacts, args.resume, args.terminal)
     elif args.action == "send":
         submit(args.artifacts, args.text)
     elif args.action == "key":
