@@ -5,7 +5,7 @@
 面向已有终端与桌面工作流、并行运行多个 CLI agent 的用户，优先提供键盘驱动的待介入会话导航，通知与计数帮助用户决定何时切回。
 当前版本针对本机 Linux + Codex CLI + niri + Waybar：状态栏显示待查看会话个数和终端位置，按 **Mod+N** 跳到最早待查看的会话，实际聚焦后清除提醒，再按进入下一个。
 
-其他平台与 agent 的支持属于调研方向，尚未实现。架构、源码职责和开发验证方法见[开发说明](DEVELOPMENT.md)。
+其他平台与 agent 的支持属于调研方向，尚未实现。架构、源码职责和开发验证方法见[开发说明](docs/development.md)。
 
 当前已验证 Kitty 和 Alacritty 的独立 OS 窗口。生产代码通过进程父链与 niri 窗口 PID 关联，
 不要求终端名为 Alacritty。每个 agent 使用独立 OS 窗口；不要把不同 agent 放进同一 Kitty
@@ -115,6 +115,6 @@ hook 仅发送事件类型、会话 ID、回合 ID 和来源，短超时、失�
 uv run python -m unittest discover -s tests -v
 ```
 
-测试覆盖会话去重、并发状态、恢复、焦点清除、隐藏会话、请求生命周期、内部线程过滤、配置合并、安装及 Waybar 输出。开发环境与桌面验收方法见[开发说明](DEVELOPMENT.md)。
+测试覆盖会话去重、并发状态、恢复、焦点清除、隐藏会话、请求生命周期、内部线程过滤、配置合并、安装及 Waybar 输出。开发环境与桌面验收方法见[开发说明](docs/development.md)。
 
 退出时 Codex 原生提示可能包含临时连接地址，恢复时请使用 `agent-done codex resume <ID>`；恢复沿用会话已有权限设置。

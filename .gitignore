@@ -6,7 +6,5 @@ __pycache__/
 build/
 dist/
 
-# Local research, experiments, acceptance records and generated artifacts.
-# Maintained usage and development guides live in README.md and DEVELOPMENT.md.
-/docs/
+# Local process documents and generated artifacts; see AGENTS.md.
 /outputs/

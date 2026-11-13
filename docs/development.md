@@ -2,7 +2,7 @@
 
 agent-done 在现有终端之外维护 CLI agent 的待查看状态，并通过桌面窗口管理器定位和聚焦会话。当前实现针对本机 Codex CLI + niri + Waybar；Kitty、Alacritty 均作为既有终端承载 TUI，每个 agent 使用独立 OS 窗口。
 
-安装和日常操作见 [README](README.md)。本文介绍当前架构、开发入口和验证方法。
+安装和日常操作见 [README](../README.md)。本文介绍当前架构、开发入口和验证方法。
 
 ## 开发环境
 
@@ -29,14 +29,14 @@ uv run python -m unittest discover -s tests -v
 
 | 模块 | 职责 |
 | --- | --- |
-| [cli.py](src/agent_done/cli.py) | 命令入口、hook 输入筛选和诊断 |
-| [codex.py](src/agent_done/codex.py) | 启动包装、协议转发、会话创建/恢复绑定、完成及请求观察 |
-| [desktop.py](src/agent_done/desktop.py) | Linux 进程身份、niri 窗口定位、窗口与焦点事件监听 |
-| [state.py](src/agent_done/state.py) | SQLite 状态、去重、待查看标记、请求与绑定生命周期 |
-| [runtime.py](src/agent_done/runtime.py) | 用户服务、控制请求、状态订阅和失效进程清理 |
-| [navigation.py](src/agent_done/navigation.py) | 从待查看队列选择有效目标并请求 niri 聚焦 |
-| [ipc.py](src/agent_done/ipc.py)、[paths.py](src/agent_done/paths.py) | 本地控制协议和路径 |
-| [waybar.py](src/agent_done/waybar.py)、[install.py](src/agent_done/install.py) | 状态栏输出、用户入口与配置安装 |
+| [cli.py](../src/agent_done/cli.py) | 命令入口、hook 输入筛选和诊断 |
+| [codex.py](../src/agent_done/codex.py) | 启动包装、协议转发、会话创建/恢复绑定、完成及请求观察 |
+| [desktop.py](../src/agent_done/desktop.py) | Linux 进程身份、niri 窗口定位、窗口与焦点事件监听 |
+| [state.py](../src/agent_done/state.py) | SQLite 状态、去重、待查看标记、请求与绑定生命周期 |
+| [runtime.py](../src/agent_done/runtime.py) | 用户服务、控制请求、状态订阅和失效进程清理 |
+| [navigation.py](../src/agent_done/navigation.py) | 从待查看队列选择有效目标并请求 niri 聚焦 |
+| [ipc.py](../src/agent_done/ipc.py)、[paths.py](../src/agent_done/paths.py) | 本地控制协议和路径 |
+| [waybar.py](../src/agent_done/waybar.py)、[install.py](../src/agent_done/install.py) | 状态栏输出、用户入口与配置安装 |
 
 启动包装器沿进程父链匹配 niri 的窗口 PID，从会话创建或恢复响应获取会话 ID。提醒服务使用这层绑定定位来源，不使用事件发生时的前台窗口推测来源。
 
@@ -68,17 +68,8 @@ uv run python tools/validate_jump.py --terminal kitty --pending-requests --outpu
 
 这些提醒来自测试数据，不会发起模型请求，也不替代真实完成、授权或提问验证；工具调用跳转命令，不能证明物理快捷键绑定正确。快捷键还应手动验证：从其他应用按键，检查目标、计数变化、连续跳转和空队列行为。
 
-完整 Codex 交互使用 [acceptance.py](tools/acceptance.py) 及其辅助工具，先阅读其 `--help`。普通 hook 信任、新建/恢复、真实审批和结构化提问需要分别验证。早期 `probe_*` 和其他实验脚本保留用于诊断，不是生产入口。
+完整 Codex 交互使用 [acceptance.py](../tools/acceptance.py) 及其辅助工具，先阅读其 `--help`。普通 hook 信任、新建/恢复、真实审批和结构化提问需要分别验证。早期 `probe_*` 和其他实验脚本保留用于诊断，不是生产入口。
 
 当前实现包含 `/proc`、niri IPC、Unix socket 和 `fcntl` 等平台相关依赖，安装器生成 systemd 用户服务；不能仅替换一个聚焦命令就宣称支持其他平台。Codex 实验协议更新后，应重新检查会话绑定、事件覆盖和交互路径。
 
-## 文档与产物归档
-
-| 类型 | 位置 | Git 策略 |
-| --- | --- | --- |
-| 产品介绍、安装、日常使用 | `README.md` | 跟踪并维护，与当前行为一致 |
-| 架构、模块职责、开发和验证方法 | `DEVELOPMENT.md` | 跟踪并维护，供其他开发者使用 |
-| 调研、讨论、实验过程、按日期记录的验收结论 | `docs/` | 本地保存，忽略上传 |
-| 验收报告、运行快照、日志和采集结果 | `outputs/` | 本地保存，忽略上传 |
-
-长期使用的规则和方法整理进维护文档；一次调查中的候选、机器路径、会话快照与逐次验收结果留在过程材料中。维护文档只引用随仓库分发的文件，不依赖本机 `docs/` 或 `outputs/`。
+文档和过程产物的存放、跟踪规则见 [AGENTS.md](../AGENTS.md#文档与产物)。
