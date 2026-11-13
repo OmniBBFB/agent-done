@@ -1,6 +1,11 @@
 # agent-done
 
-在 Waybar 显示需要查看的 Codex 会话个数，并在悬浮提示中显示对应终端的位置。初版针对本机 Linux + Codex CLI + Alacritty + niri + Waybar。
+保留现有终端，用一个全局快捷键，直达下一个需要你介入的 CLI agent 会话。
+
+面向已有终端与桌面工作流、并行运行多个 CLI agent 的用户，优先提供键盘驱动的待介入会话导航，通知与计数帮助用户决定何时切回。
+当前版本针对本机 Linux + Codex CLI + niri + Waybar：状态栏显示待查看会话个数和终端位置，按 **Mod+N** 跳到最早待查看的会话，实际聚焦后清除提醒，再按进入下一个。
+
+跨平台可行性、cmux / agent-notify / Agent Notifications 比较和产品区别点见[产品调研汇总（2026-11-13）](docs/product-research-2026-11-13.md)。其他平台与 agent 的支持属于调研方向，尚未实现。
 
 当前桌面终端已迁移到 Kitty，Alacritty 仍可使用。生产代码通过进程父链与 niri 窗口 PID 关联，
 不要求终端名为 Alacritty。每个 agent 使用独立 OS 窗口；不要把不同 agent 放进同一 Kitty
