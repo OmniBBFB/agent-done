@@ -5,3 +5,8 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+
+# Local research, experiments, acceptance records and generated artifacts.
+# Maintained usage and development guides live in README.md and DEVELOPMENT.md.
+/docs/
+/outputs/

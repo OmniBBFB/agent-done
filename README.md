@@ -5,23 +5,12 @@
 面向已有终端与桌面工作流、并行运行多个 CLI agent 的用户，优先提供键盘驱动的待介入会话导航，通知与计数帮助用户决定何时切回。
 当前版本针对本机 Linux + Codex CLI + niri + Waybar：状态栏显示待查看会话个数和终端位置，按 **Mod+N** 跳到最早待查看的会话，实际聚焦后清除提醒，再按进入下一个。
 
-跨平台可行性、cmux / agent-notify / Agent Notifications 比较和产品区别点见[产品调研汇总（2026-11-13）](docs/product-research-2026-11-13.md)。其他平台与 agent 的支持属于调研方向，尚未实现。
+其他平台与 agent 的支持属于调研方向，尚未实现。架构、源码职责和开发验证方法见[开发说明](DEVELOPMENT.md)。
 
-当前桌面终端已迁移到 Kitty，Alacritty 仍可使用。生产代码通过进程父链与 niri 窗口 PID 关联，
+当前已验证 Kitty 和 Alacritty 的独立 OS 窗口。生产代码通过进程父链与 niri 窗口 PID 关联，
 不要求终端名为 Alacritty。每个 agent 使用独立 OS 窗口；不要把不同 agent 放进同一 Kitty
 窗口的标签页或分屏，当前提醒和跳转按 niri 窗口处理，不能区分这些内部区域。
 Linux 的 niri/Waybar 通知集成不直接适用于 macOS。
-
-终端验收工具默认使用 Kitty，`tools/acceptance.py start ... --terminal alacritty` 和
-`tools/validate_jump.py --terminal alacritty` 可继续检查旧终端。
-Kitty 窗口识别与授权/提问跳转验证：
-
-```sh
-.venv/bin/python tools/validate_jump.py --terminal kitty --pending-requests --output /tmp/agent-done-kitty.json
-```
-
-该验证创建隔离提醒服务及两个临时真实窗口；提醒事件为测试数据，不发起模型请求，
-不修改生产通知，结束后关闭测试窗口并恢复焦点。
 
 ## 日常使用
 
@@ -51,21 +40,21 @@ Waybar 显示 `Codex 0`、`Codex 1` 等。悬浮查看会话名称、提醒原�
 
 ## 跳到待介入的会话
 
-本机已配置 **Mod+N**（通常为 Super/Win+N）。按一次跳到最早需要介入、尚未查看的会话窗口；切回后原有焦点监听会清除该提醒，再按一次跳到下一个。没有可跳转的会话时不切换窗口。
+建议将 **Mod+N**（通常为 Super/Win+N）绑定到跳转命令。按一次跳到最早需要介入、尚未查看的会话窗口；切回后原有焦点监听会清除该提醒，再按一次跳到下一个。没有可跳转的会话时不切换窗口。
 
 对应命令是 `agent-done jump`。与状态栏计数使用同一个 `pending` 条件，覆盖生成完成、等待授权、等待回答和执行失败，按会话最近一次状态更新时间从早到晚选择。已查看的会话、已关闭的窗口和失效进程会跳过，同一终端内的隐藏会话保留提醒，避免跳到其他会话后误清除。查看授权或问题仅清除提醒，请求仍等待你实际操作。
 
 实现通过会话映射取得窗口 ID，再调用 `niri msg action focus-window --id ...`。跨显示器、工作区由 niri 处理，窗口行列不参与排序。跳转命令不会主动清除提醒，实际聚焦后才由监听器确认已查看；跳转失败时提醒保留。
 
-本机 `~/.config/niri/config.kdl` 的已有 `binds` 中加入了下面的绑定，修改前已备份：
+在 `~/.config/niri/config.kdl` 的已有 `binds` 中加入下面的绑定，并将命令路径替换为自己的安装路径：
 
 ```kdl
 Mod+N repeat=false hotkey-overlay-title="查看最早待介入的 Codex 会话" {
-    spawn "/home/csc/.local/bin/agent-done" "jump";
+    spawn "/home/<user>/.local/bin/agent-done" "jump";
 }
 ```
 
-其他机器请替换命令路径。niri 保存配置后自动加载，无需重启桌面。绑定与加载机制见 [niri 官方文档](https://niri-wm.github.io/niri/Configuration:-Key-Bindings.html)和[配置说明](https://niri-wm.github.io/niri/Configuration:-Introduction.html)。
+niri 保存配置后自动加载，无需重启桌面。绑定与加载机制见 [niri 官方文档](https://niri-wm.github.io/niri/Configuration:-Key-Bindings.html)和[配置说明](https://niri-wm.github.io/niri/Configuration:-Introduction.html)。
 
 ## 安装与启用
 
@@ -126,8 +115,6 @@ hook 仅发送事件类型、会话 ID、回合 ID 和来源，短超时、失�
 uv run python -m unittest discover -s tests -v
 ```
 
-测试覆盖会话去重、并发状态、恢复、焦点清除、隐藏会话、请求生命周期、内部线程过滤、配置合并、安装及 Waybar 输出。真实桌面验收工具是 `tools/acceptance.py`，通过实际 Kitty 或 Alacritty 窗口和 Codex TUI 输入操作；旧研究脚本保留在 `tools/`，不用于日常启动。
+测试覆盖会话去重、并发状态、恢复、焦点清除、隐藏会话、请求生命周期、内部线程过滤、配置合并、安装及 Waybar 输出。开发环境与桌面验收方法见[开发说明](DEVELOPMENT.md)。
 
-当前 29 项自动测试通过。完成、授权、结构化提问、恢复、并发和窗口生命周期的真实桌面验收见[正式版验收记录](docs/production-acceptance-2026-11-02.md)；新增跳转命令和真实窗口聚焦验收见[快捷键验收记录](docs/jump-2026-11-03.md)。退出时 Codex 原生提示可能包含临时连接地址，恢复时请使用 `agent-done codex resume <ID>`；恢复沿用会话已有权限设置。
-
-调研背景见[原始记录](docs/research-notes.md)、[会话映射实验](docs/session-pid-mapping.md)和[前期正常交互验证](docs/normal-interaction-2026-11-02.md)。
+退出时 Codex 原生提示可能包含临时连接地址，恢复时请使用 `agent-done codex resume <ID>`；恢复沿用会话已有权限设置。
