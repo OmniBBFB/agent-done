@@ -58,6 +58,8 @@ niri 保存配置后自动加载，无需重启桌面。绑定与加载机制见
 
 ## 安装与启用
 
+本节是 Linux/niri/Waybar 的安装步骤。macOS 请直接使用 [macOS 安装、使用与实机验收说明](docs/macos.md)，不执行下面的 `install` 和 systemd 命令。
+
 需要 Python 3.11+、uv，以及已经可用的 Codex、niri 和 Waybar。在项目目录运行：
 
 ```sh

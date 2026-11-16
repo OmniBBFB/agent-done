@@ -6,7 +6,7 @@ agent-done 在现有终端之外维护 CLI agent 的待查看状态，并通过�
 
 ## 开发环境
 
-需要 Python 3.11+ 和 uv。运行真实桌面流程还需要可用的 Codex CLI、niri、Waybar，以及 Kitty 或 Alacritty。
+需要 Python 3.11+ 和 uv。Linux 真实桌面流程还需要可用的 Codex CLI、niri、Waybar，以及 Kitty 或 Alacritty；macOS 的依赖、手动服务及验收步骤见 [macOS 接入说明](macos.md)。
 
 ```sh
 uv sync

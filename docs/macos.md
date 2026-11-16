@@ -4,7 +4,28 @@
 
 ## 安装与后端选择
 
-在项目目录执行 `uv sync`。macOS 会安装 psutil 与 PyObjC ApplicationServices，Linux 不安装这些平台依赖。
+开始前准备 Git、uv、Python 3.11+，以及已完成登录、可独立运行的 Codex CLI。首次窗口机制验收还需要 Kitty 或 Alacritty，其可执行文件须在 PATH 中；仅将终端应用装入 Applications 不代表命令已可用。请从本机图形会话中的终端执行，不通过 SSH 或 tmux/screen 测试。
+
+获取代码并安装项目：
+
+```sh
+git clone https://github.com/OmniBBFB/agent-done.git
+cd agent-done
+uv sync
+```
+
+已有检出目录则先在没有未保存改动的情况下执行 `git pull --ff-only`，再执行 `uv sync`。macOS 会安装 psutil 与 PyObjC ApplicationServices，Linux 不安装这些平台依赖。
+
+在 macOS 上检查入口和依赖：
+
+```sh
+codex --version
+.venv/bin/agent-done --version
+.venv/bin/python -c 'import psutil, HIServices, CoreFoundation, AppKit; print("macOS dependencies OK")'
+command -v kitty
+```
+
+使用 Alacritty 时最后一行改为 `command -v alacritty`。Codex CLI 还需支持 `--remote` 和 `app-server daemon`，可通过 `codex --help` 与 `codex app-server daemon --help` 检查；项目复用它的本地 daemon，未另行实现模型客户端。
 
 服务启动时选择后端：
 
@@ -15,13 +36,22 @@
 
 macOS 默认选择 `macos`，Linux 默认选择 `niri`。设置非法后端会报错；指定 yabai 不可用时不会静默改用另一套窗口 ID。
 
-先在一个终端中运行服务，并保持该命令运行。例如：
+先选择一条路径，在一个终端中以前台方式运行服务，并保持该命令运行：
+
+```sh
+# 原生 macOS
+AGENT_DONE_DESKTOP=macos .venv/bin/agent-done serve
+```
+
+或者，在已有 yabai 的机器上运行：
 
 ```sh
 AGENT_DONE_DESKTOP=yabai .venv/bin/agent-done serve
 ```
 
-原生接入将 `yabai` 改成 `macos`。在其他独立终端窗口使用本项目的绝对入口路径启动：
+两条命令择一执行。服务为每用户单实例，不能同时启动两个后端。需要停止手动前台服务时，在该服务终端按 Ctrl-C。
+
+在其他独立终端窗口使用本项目的绝对入口路径启动；下文的 `/path/to/agent-done` 和 `/path/to/project` 均需替换为真实路径：
 
 ```sh
 /path/to/agent-done/.venv/bin/agent-done codex -C /path/to/project
@@ -29,6 +59,14 @@ AGENT_DONE_DESKTOP=yabai .venv/bin/agent-done serve
 /path/to/agent-done/.venv/bin/agent-done jump
 /path/to/agent-done/.venv/bin/agent-done doctor
 ```
+
+首次启动 Codex 后，在 `/hooks` 中审阅并信任当前虚拟环境的 `python -m agent_done hook` 命令。信任完成后再进行真实 hook 验收；虚拟环境的实际解释器路径可能显示为 `python3`。已有普通 Codex 会话需先正常退出，再通过以下入口恢复，才能登记窗口：
+
+```sh
+/path/to/agent-done/.venv/bin/agent-done codex resume <会话ID>
+```
+
+使用这个恢复入口，不复制 Codex 退出提示中带临时 `proxy.sock` 的命令。更新代码后，已经运行的服务和包装器不会自动重新加载；先正常退出受跟踪 CLI，停止旧服务，重新启动服务，再恢复对应会话。
 
 客户端默认使用服务已选择的后端。若客户端显式设置 `AGENT_DONE_DESKTOP`，应与服务一致。更换后端需要停止旧服务、以新配置启动，并重新启动或恢复受跟踪会话。
 
@@ -40,7 +78,7 @@ AGENT_DONE_DESKTOP=yabai .venv/bin/agent-done serve
 
 yabai 路径使用窗口 ID、窗口进程及其创建身份。请按已安装 yabai 的要求配置权限；本项目不修改系统安全设置，也不保证跨 Space、原生全屏或特定 yabai 版本的行为。
 
-原生路径需要给运行服务的 Python 进程相应的辅助功能权限。`doctor` 的 `desktop_error` 会显示权限或查询错误；它不会自动替用户更改权限。该实现使用公开 AX 接口，不使用标题/CWD 猜窗口、不调用私有 CGS Space 接口，也不以应用激活作为准确窗口已查看的证明。
+原生路径需要给运行服务的 Python 进程相应的辅助功能权限。`doctor` 的 `desktop_error` 会显示权限或查询错误；它不会自动替用户更改权限。按错误提示在系统辅助功能授权界面处理运行宿主的权限，授权后重启服务并重新检查。该实现使用公开 AX 接口，不使用标题/CWD 猜窗口、不调用私有 CGS Space 接口，也不以应用激活作为准确窗口已查看的证明。
 
 原生 AX 引用由现有用户服务持有，窗口 ID 只在该服务进程生命周期内有效。服务重启后，旧原生绑定会停用，待查看状态保留；需重新启动或恢复对应会话登记。它们不能像 niri/yabai 的数字窗口 ID 一样直接恢复。
 
@@ -59,10 +97,21 @@ uv run python tools/validate_desktop.py --backend macos --terminal kitty --outpu
 
 该入口需要真实图形桌面及权限。辅助功能权限也适用于隔离服务的 Python；工具不能在普通无桌面 CI 中证明聚焦成功。测试提醒是数据夹具，不是真实 Codex 事件；物理快捷键、跨显示器/Space、最小化和原生全屏必须单独测试并记录版本。
 
-完成窗口机制验收后，再使用正常 hook 信任流程验证真实 Codex 新建/恢复、完成、授权和提问。未通过实机验收的组合继续标为实验性。
+完成窗口机制验收后，再进行真实 Codex 流程：
+
+1. 用上述入口在两个独立 OS 窗口启动或恢复 Codex，确认 `status --json` 中存在对应会话及 `active=true` 的 view。
+2. 让其中一个会话在后台完成，确认 `status` 出现待查看项；在第三个终端运行 `jump`，确认切到准确窗口后计数减少。
+3. 分别验证真正交给用户的工具授权、带选项/输入框的结构化提问，以及异步问题卡片。问题出现前将焦点移到其他窗口；切回后只清除提醒，不能自动批准或提交答案。
+4. 验证空队列不跳转、目标窗口关闭、正常退出后恢复，再验证自己配置的全局快捷键。跨 Space、跨显示器、最小化及原生全屏分别记录结果。
+
+原生接入在任何来源窗口尚未登记时，`desktop_connected=true` 只表示 AX 查询成功，不能证明会话绑定或跳转已通过。若启动时提示“提醒暂不可用，继续启动 Codex”，该次是普通 Codex 回退，不能算作接入成功。
+
+未通过实机验收的组合继续标为实验性。当前自动测试与 Linux/niri 真实窗口回归已有结果，macOS 的依赖安装、权限、终端来源识别和实际激活仍需首轮实机验证。
 
 ## 路径与诊断
 
-当前复用 Unix IPC 和 SQLite，默认状态目录及日志位置与 [README](../README.md#实现与数据) 相同。`AGENT_DONE_RUNTIME_DIR` 可显式指定 agent-done 的控制 socket/锁/转发 socket 所在目录；与图形桌面的 `XDG_RUNTIME_DIR` 分开，主要用于隔离验收。
+当前复用 Unix IPC 和 SQLite。默认未设置 XDG/agent-done 路径覆盖时，macOS 状态和日志位于 `~/.local/state/agent-done/`，控制 socket 位于 `~/.local/state/agent-done/run/control.sock`。`AGENT_DONE_RUNTIME_DIR` 可显式指定 agent-done 的控制 socket/锁/转发 socket 所在目录；与图形桌面的 `XDG_RUNTIME_DIR` 分开，主要用于隔离验收。详细路径规则见 [README](../README.md#实现与数据)。
 
 `doctor` 返回实际服务后端、`desktop_connected`、`desktop_error` 和实验性标记；`status --json` 中每个 view 带 `backend`、窗口进程身份和 `active`。位置元数据不可用时不伪造行列。报告和逐次验收记录放在本地 `outputs/`，不提交。
+
+反馈问题时附上 macOS 版本、芯片架构、终端及 Codex 版本、Git 提交号、后端名称，以及 `doctor`、`status --json` 和验收 `result.json`。同时说明焦点当时在哪个窗口、是否涉及 Space/全屏/最小化；运行日志在 `~/.local/state/agent-done/agent-done.log`。分享前检查其中的会话标题和本地路径。
