@@ -1,6 +1,6 @@
 # 开发说明
 
-agent-done 在现有终端之外维护 CLI agent 的待查看状态，并通过桌面窗口管理器定位和聚焦会话。当前实现针对本机 Codex CLI + niri + Waybar；Kitty、Alacritty 均作为既有终端承载 TUI，每个 agent 使用独立 OS 窗口。
+agent-done 在现有终端之外维护 CLI agent 的待查看状态，并通过桌面窗口管理器定位和聚焦会话。当前已验证本机 Codex CLI + niri + Waybar，另有尚未实机验证的 macOS/yabai 与原生 AX 接入；每个 agent 使用独立 OS 窗口。
 
 安装和日常操作见 [README](../README.md)。本文介绍当前架构、开发入口和验证方法。
 
@@ -31,16 +31,18 @@ uv run python -m unittest discover -s tests -v
 | --- | --- |
 | [cli.py](../src/agent_done/cli.py) | 命令入口、hook 输入筛选和诊断 |
 | [codex.py](../src/agent_done/codex.py) | 启动包装、协议转发、会话创建/恢复绑定、完成及请求观察 |
-| [desktop.py](../src/agent_done/desktop.py) | Linux 进程身份、niri 窗口定位、窗口与焦点事件监听 |
+| [process.py](../src/agent_done/process.py) | Linux/macOS 的进程父链、创建身份和存活核对 |
+| [desktop.py](../src/agent_done/desktop.py) | 后端选择、来源登记、快照、聚焦请求与观察接口 |
+| [desktop_niri.py](../src/agent_done/desktop_niri.py)、[desktop_yabai.py](../src/agent_done/desktop_yabai.py)、[desktop_macos.py](../src/agent_done/desktop_macos.py) | 系统交互、准确窗口身份和标准化桌面观察 |
 | [state.py](../src/agent_done/state.py) | SQLite 状态、去重、待查看标记、请求与绑定生命周期 |
 | [runtime.py](../src/agent_done/runtime.py) | 用户服务、控制请求、状态订阅和失效进程清理 |
-| [navigation.py](../src/agent_done/navigation.py) | 从待查看队列选择有效目标并请求 niri 聚焦 |
+| [navigation.py](../src/agent_done/navigation.py) | 从待查看队列选择有效目标并通过桌面接口请求聚焦 |
 | [ipc.py](../src/agent_done/ipc.py)、[paths.py](../src/agent_done/paths.py) | 本地控制协议和路径 |
 | [waybar.py](../src/agent_done/waybar.py)、[install.py](../src/agent_done/install.py) | 状态栏输出、用户入口与配置安装 |
 
-启动包装器沿进程父链匹配 niri 的窗口 PID，从会话创建或恢复响应获取会话 ID。提醒服务使用这层绑定定位来源，不使用事件发生时的前台窗口推测来源。
+启动包装器沿进程父链匹配桌面后端提供的窗口 PID，从会话创建或恢复响应获取会话 ID。同一进程有多个窗口时，在来源登记阶段用其聚焦窗口消歧；提醒服务使用已经建立的绑定定位来源，不使用事件发生时的前台窗口推测来源。
 
-终端负责普通输入输出与画面显示；生产代码未使用 Kitty 远程控制、终端通知序列或内部标签/分屏接口。当前窗口身份属于 niri；支持其他平台或终端内部区域时，需要另行适配身份、聚焦和实际可见状态。
+终端负责普通输入输出与画面显示；生产代码未使用 Kitty 远程控制、终端通知序列或内部标签/分屏接口。窗口身份包含后端，原生 AX 窗口引用只在服务内使用；支持终端内部区域时仍需另行适配。
 
 ## 维护时需要保留的行为
 
@@ -50,8 +52,11 @@ uv run python -m unittest discover -s tests -v
 - 一个窗口内未显示的会话不能仅因窗口聚焦而被确认已查看。内部标题生成和子 agent 也不计入独立待查看会话。
 - 进程身份同时检查 PID 和启动标识；退出、关闭窗口、断开绑定时清理，避免 PID 复用导致误认。
 - `Stop` hook 是停止候选，以协议的 `turn/completed` 确认完成；权限 hook 不单独证明需要人工审批，以真实客户端请求为准。
+- 结构化提问包括 `item/tool/requestUserInput` 等服务端 RPC，以及 `item/completed` 中 `delivery=async`、带非空 `questions` 的 `agentMessage`。异步问题按连接和消息 ID 去重，不解析问题正文，也不等待回合完成才提醒；回合完成和新用户回合继续使用现有状态清理规则。
 - 提醒服务不可用时放行 Codex；启动时跟踪失败会回退普通启动。服务恢复后需重新启动或恢复会话登记。
 - hook 仅发送事件身份字段，不记录原始问题、工具参数或助手正文。会话标题和工作目录用于显示，会进入状态库。
+
+后端契约、服务持有窗口引用与旧 niri 数据迁移见 [桌面适配设计](desktop-adaptation-design.md)；macOS 运行和验收见 [macOS 接入说明](macos.md)。
 
 ## 桌面验证
 
@@ -70,6 +75,6 @@ uv run python tools/validate_jump.py --terminal kitty --pending-requests --outpu
 
 完整 Codex 交互使用 [acceptance.py](../tools/acceptance.py) 及其辅助工具，先阅读其 `--help`。普通 hook 信任、新建/恢复、真实审批和结构化提问需要分别验证。早期 `probe_*` 和其他实验脚本保留用于诊断，不是生产入口。
 
-当前实现包含 `/proc`、niri IPC、Unix socket 和 `fcntl` 等平台相关依赖，安装器生成 systemd 用户服务；不能仅替换一个聚焦命令就宣称支持其他平台。Codex 实验协议更新后，应重新检查会话绑定、事件覆盖和交互路径。
+Linux 进程接入使用 `/proc`，macOS 使用 psutil；用户服务继续使用 Unix socket 和 `fcntl`。安装器仍仅生成 Linux 的 systemd/Waybar 集成。Windows 不在当前范围。Codex 实验协议更新后，应重新检查会话绑定、事件覆盖和交互路径。
 
 文档和过程产物的存放、跟踪规则见 [AGENTS.md](../AGENTS.md#文档与产物)。

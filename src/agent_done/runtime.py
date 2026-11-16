@@ -1,4 +1,4 @@
-"""Per-user state service and niri focus observer."""
+"""Per-user state service and desktop observation coordinator."""
 
 import asyncio
 import fcntl
@@ -7,7 +7,8 @@ import logging
 import os
 import signal
 
-from .desktop import start_ticks, watch_niri
+from .desktop import Desktop
+from .process import same_process
 from .paths import control_socket, private_dir, runtime_dir, state_dir
 from .state import State
 
@@ -15,11 +16,50 @@ LOG = logging.getLogger(__name__)
 
 
 class Runtime:
-    def __init__(self, state):
+    def __init__(self, state, desktop=None):
         self.state = state
+        self.desktop = desktop
         self.subscribers = set()
         self.clients = set()
         self.previous = None
+        if desktop is not None:
+            self.state.desktop_backend = desktop.name
+            with self.state.db:
+                if desktop.adapter.ephemeral:
+                    self.state.db.execute("UPDATE views SET active=0 WHERE backend=?", (desktop.name,))
+                self.state.db.execute("UPDATE views SET active=0 WHERE backend!=?", (desktop.name,))
+
+    def observed(self, snapshot):
+        self.state.observe_desktop(snapshot)
+        self.publish()
+
+    def disconnected(self, reason):
+        self.state.desktop_disconnected(reason)
+        self.publish()
+
+    async def desktop_request(self, message):
+        if self.desktop is None:
+            raise RuntimeError("桌面接入尚未初始化")
+        if message["op"] == "focus" and message.get("backend") != self.desktop.name:
+            raise RuntimeError("目标与服务的桌面后端不一致，请重新启动或恢复会话")
+        try:
+            if message["op"] == "identify":
+                pid = message["pid"]
+                if not isinstance(pid, int) or pid <= 1:
+                    raise ValueError("invalid source pid")
+                identity = await self.desktop.identify(pid)
+                return {"ok": True, "identity": identity}
+            if message["op"] == "desktop_status":
+                desktop = await self.desktop.snapshot()
+                self.observed(desktop)
+                return {"ok": True, "desktop": desktop, "snapshot": self.state.snapshot()}
+            requested = await self.desktop.activate(message["window_id"], message.get("window_pid"),
+                                                     message.get("window_start"))
+            # A successful request does not update attention state.
+            return {"ok": True, "requested": requested}
+        except RuntimeError as error:
+            self.disconnected(str(error))
+            raise
 
     def publish(self):
         snapshot = self.state.snapshot()
@@ -36,6 +76,8 @@ class Runtime:
         op = message.get("op")
         s = self.state
         if op == "bind":
+            if self.desktop is not None and message["identity"].get("backend", "niri") != self.desktop.name:
+                raise RuntimeError("绑定来源与服务桌面后端不一致，请重启或恢复受跟踪会话")
             s.bind(message["connection"], message["session"], message["identity"],
                    message.get("title", "")[:512], message.get("cwd", ""))
         elif op == "unbind":
@@ -93,7 +135,10 @@ class Runtime:
                     writer.write(json.dumps({"ok": True, "snapshot": snapshot}).encode() + b"\n")
                     await asyncio.wait_for(writer.drain(), 5)
             else:
-                result = self.dispatch(message)
+                if message.get("op") in ("identify", "desktop_status", "focus"):
+                    result = await self.desktop_request(message)
+                else:
+                    result = self.dispatch(message)
                 writer.write(json.dumps(result).encode() + b"\n")
                 await asyncio.wait_for(writer.drain(), 5)
         except (ValueError, KeyError, TypeError):
@@ -104,6 +149,12 @@ class Runtime:
                 pass
         except (OSError, asyncio.TimeoutError, asyncio.CancelledError):
             pass
+        except RuntimeError as error:
+            writer.write(json.dumps({"ok": False, "error": str(error)}).encode() + b"\n")
+            try:
+                await writer.drain()
+            except OSError:
+                pass
         finally:
             if disconnected:
                 disconnected.cancel()
@@ -117,8 +168,8 @@ class Runtime:
     async def prune(self):
         while True:
             for row in self.state.db.execute("SELECT DISTINCT connection,pid,start_ticks,owner_pid,owner_start_ticks FROM views").fetchall():
-                if (start_ticks(row["pid"]) != row["start_ticks"] or
-                        start_ticks(row["owner_pid"]) != row["owner_start_ticks"]):
+                if (not same_process(row["pid"], row["start_ticks"]) or
+                        not same_process(row["owner_pid"], row["owner_start_ticks"])):
                     self.state.unbind(row["connection"])
             self.publish()
             await asyncio.sleep(2)
@@ -135,14 +186,16 @@ async def serve():
         socket_path = control_socket()
         socket_path.unlink(missing_ok=True)
         state = State(state_dir() / "state.sqlite3")
-        runtime = Runtime(state)
+        desktop = Desktop()
+        runtime = Runtime(state, desktop)
         server = await asyncio.start_unix_server(runtime.client, path=str(socket_path), limit=65536)
         socket_path.chmod(0o600)
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
-        tasks = [asyncio.create_task(watch_niri(state, runtime.publish)), asyncio.create_task(runtime.prune())]
+        tasks = [asyncio.create_task(desktop.watch(runtime.observed, runtime.disconnected)),
+                 asyncio.create_task(runtime.prune())]
         try:
             await stop.wait()
         finally:

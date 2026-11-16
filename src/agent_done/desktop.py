@@ -1,126 +1,136 @@
-"""niri IPC and Linux process identity discovery."""
+"""Desktop interface; adapters own OS handles, runtime owns attention state."""
 
 import asyncio
-import json
 import os
-from pathlib import Path
 import subprocess
+import sys
+
+from .process import ancestors, start_ticks, codex_pid
+# Compatibility for older local diagnostics. Production uses Desktop instead.
+from .desktop_niri import niri_socket, niri_query
 
 
-def start_ticks(pid):
-    try:
-        return (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()[19]
-    except (OSError, IndexError):
-        return None
-
-
-def codex_pid(launcher_pid):
-    pending = [launcher_pid]
-    while pending:
-        pid = pending.pop(0)
-        proc = Path("/proc") / str(pid)
-        try:
-            if proc.joinpath("comm").read_text().strip() == "codex":
-                return pid
-            children = proc / "task" / str(pid) / "children"
-            pending.extend(int(x) for x in children.read_text().split())
-        except OSError:
-            pass
-    return launcher_pid
-
-
-def niri_socket():
-    explicit = os.environ.get("NIRI_SOCKET")
+def backend_name():
+    explicit = os.environ.get("AGENT_DONE_DESKTOP")
     if explicit:
+        if explicit not in ("niri", "yabai", "macos"):
+            raise RuntimeError("AGENT_DONE_DESKTOP 必须是 niri、yabai 或 macos")
         return explicit
-    runtime = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
-    candidates = sorted(runtime.glob("niri.*.sock"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return str(candidates[0]) if candidates else None
+    if sys.platform == "darwin":
+        return "macos"
+    if sys.platform.startswith("linux"):
+        return "niri"
+    raise RuntimeError("当前操作系统尚无桌面适配")
 
 
-def niri_query(command, socket_path=None):
-    path = socket_path or niri_socket()
-    if not path:
-        raise RuntimeError("没有找到 niri socket")
-    result = subprocess.run(["niri", "msg", "--json", command],
-                            env=dict(os.environ, NIRI_SOCKET=path), capture_output=True,
-                            text=True, timeout=4, check=True)
-    return json.loads(result.stdout)
+def create_adapter(name=None):
+    name = name or backend_name()
+    if name == "niri":
+        from .desktop_niri import Niri
+        return Niri()
+    if name in ("macos", "yabai") and sys.platform != "darwin":
+        raise RuntimeError(name + " 桌面接入仅在 macOS 可用")
+    if name == "yabai":
+        from .desktop_yabai import Yabai
+        return Yabai()
+    if name == "macos":
+        from .desktop_macos import MacOS
+        return MacOS()
+    raise RuntimeError("未知桌面后端：" + name)
 
 
-def window_identity():
-    socket_path = niri_socket()
-    windows = niri_query("windows", socket_path)
-    ancestors = []
-    pid = os.getpid()
-    while pid > 1 and pid not in ancestors:
-        ancestors.append(pid)
-        try:
-            stat = (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
-            pid = int(stat[1])
-        except (OSError, ValueError):
-            break
-    for ancestor in ancestors:
-        candidates = [w for w in windows if w.get("pid") == ancestor]
-        if len(candidates) == 1:
-            return {"window_id": candidates[0]["id"], "niri_socket": socket_path}
-        if candidates:
-            focused = [w for w in candidates if w.get("is_focused")]
-            if len(focused) == 1:
-                return {"window_id": focused[0]["id"], "niri_socket": socket_path}
-            raise RuntimeError("同一终端进程有多个窗口，请在目标窗口内启动")
-    raise RuntimeError("无法从当前进程找到 niri 终端窗口，请在本机终端内运行")
+def identify(adapter, pid):
+    """Focus can only disambiguate windows belonging to a source ancestor."""
+    chain = ancestors(pid)
+    if hasattr(adapter, "register"):
+        adapter.register(chain)
+    snapshot = adapter.snapshot()
+    for ancestor in chain:
+        candidates = [w for w in snapshot["windows"] if w.get("pid") == ancestor]
+        if not candidates:
+            continue
+        if len(candidates) > 1:
+            candidates = [w for w in candidates if w["id"] == snapshot["focused"]]
+        if len(candidates) != 1 or not candidates[0].get("start"):
+            raise RuntimeError("无法唯一识别源终端窗口，请在目标独立窗口中启动")
+        window = candidates[0]
+        return {"backend": adapter.name, "window_id": window["id"],
+                "window_pid": window["pid"], "window_start": window["start"]}
+    raise RuntimeError("无法从源进程找到终端窗口，请在本机独立终端窗口内运行")
 
 
-async def watch_niri(state, changed):
-    while True:
-        process = None
-        try:
-            path = niri_socket()
-            if not path:
-                raise RuntimeError("niri is not running")
-            process = await asyncio.create_subprocess_exec(
-                "niri", "msg", "--json", "event-stream", env=dict(os.environ, NIRI_SOCKET=path),
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=8 * 1024 * 1024)
-            async for line in process.stdout:
-                event = json.loads(line)
-                state.niri_connected = True
-                if "WindowsChanged" in event:
-                    windows = event["WindowsChanged"]["windows"]
-                    state.windows = {w["id"]: w for w in windows}
-                    state.focus(next((w["id"] for w in windows if w.get("is_focused")), None))
-                    for row in state.db.execute("SELECT DISTINCT connection,window_id FROM views").fetchall():
-                        if row["window_id"] not in state.windows:
-                            state.unbind(row["connection"])
-                elif "WorkspacesChanged" in event:
-                    state.workspaces = {w["id"]: w for w in event["WorkspacesChanged"]["workspaces"]}
-                elif "WindowOpenedOrChanged" in event:
-                    window = event["WindowOpenedOrChanged"]["window"]
-                    state.windows[window["id"]] = window
-                    if window.get("is_focused"):
-                        state.focus(window["id"])
-                elif "WindowFocusChanged" in event:
-                    state.focus(event["WindowFocusChanged"].get("id"))
-                elif "WindowClosed" in event:
-                    window_id = event["WindowClosed"]["id"]
-                    state.windows.pop(window_id, None)
-                    for row in state.db.execute("SELECT DISTINCT connection FROM views WHERE window_id=?", (window_id,)).fetchall():
-                        state.unbind(row["connection"])
-                elif "WindowLayoutsChanged" in event:
-                    for window_id, layout in event["WindowLayoutsChanged"]["changes"]:
-                        if window_id in state.windows:
-                            state.windows[window_id]["layout"] = layout
-                changed()
-        except (OSError, RuntimeError, ValueError, KeyError):
-            pass
-        finally:
-            state.niri_connected = False
-            state.focus(None)
-            changed()
-            if process and process.returncode is None:
+def desktop_error(error):
+    if isinstance(error, subprocess.CalledProcessError):
+        return error.stderr.strip() if error.stderr else str(error)
+    if isinstance(error, subprocess.TimeoutExpired):
+        return "桌面操作超时，提醒仍保留"
+    return str(error)
+
+
+class Desktop:
+    """Serialize access to native handles off the event loop in the user service."""
+    def __init__(self, adapter=None):
+        self.adapter = adapter or create_adapter()
+        self.name = self.adapter.name
+        self.lock = asyncio.Lock()
+
+    async def _call(self, function, *args):
+        async with self.lock:
+            task = asyncio.create_task(asyncio.to_thread(function, *args))
+            try:
+                return await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # A cancelled waiter must not unlock while native code still runs.
                 try:
-                    process.terminate()
-                except ProcessLookupError:
-                    pass
-                await process.wait()
-        await asyncio.sleep(2)
+                    await task
+                finally:
+                    raise
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                raise RuntimeError(desktop_error(error)) from error
+
+    async def identify(self, pid):
+        return await self._call(identify, self.adapter, pid)
+
+    async def snapshot(self):
+        return await self._call(self.adapter.snapshot)
+
+    async def activate(self, window_id, window_pid=None, window_start=None):
+        def activate():
+            snapshot = self.adapter.snapshot()
+            window = next((w for w in snapshot["windows"] if w["id"] == window_id), None)
+            if window is None:
+                return False
+            if window_pid is not None and (window.get("pid") != window_pid or
+                                           window.get("start") != window_start):
+                return False
+            self.adapter.activate(window_id)
+            return True
+        return await self._call(activate)
+
+    async def watch(self, observed, disconnected):
+        while True:
+            try:
+                if hasattr(self.adapter, "events"):
+                    async for snapshot in self.adapter.events():
+                        observed(snapshot)
+                else:
+                    while True:
+                        observed(await self.snapshot())
+                        await asyncio.sleep(0.3)
+            except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as error:
+                disconnected(desktop_error(error))
+            await asyncio.sleep(2)
+
+
+async def window_identity():
+    from .ipc import async_request
+    snapshot = (await async_request({"op": "status"}))["snapshot"]
+    explicit = os.environ.get("AGENT_DONE_DESKTOP")
+    if explicit and snapshot.get("desktop_backend", "niri") != explicit:
+        raise RuntimeError("服务使用的桌面后端与 AGENT_DONE_DESKTOP 不一致，请重启服务")
+    if "desktop_backend" not in snapshot:
+        # Keep an already-running old niri service usable during checkout upgrades.
+        if backend_name() != "niri":
+            raise RuntimeError("请重启 agent-done 服务以启用桌面适配")
+        return await asyncio.to_thread(identify, create_adapter("niri"), os.getpid())
+    return (await async_request({"op": "identify", "pid": os.getpid()}, timeout=15))["identity"]

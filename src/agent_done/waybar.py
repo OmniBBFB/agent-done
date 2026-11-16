@@ -34,10 +34,11 @@ def render(snapshot):
         for view in session["views"]:
             suffix = "" if view["active"] else "（终端内的其他会话）"
             rows.append("  " + location(view) + suffix)
-    if not snapshot.get("niri_connected"):
-        rows.append("niri 连接中，位置和查看状态稍后更新")
+    connected = snapshot.get("desktop_connected", snapshot.get("niri_connected"))
+    if not connected:
+        rows.append(snapshot.get("desktop_backend", "niri") + " 连接中，位置和查看状态稍后更新")
     return {"text": f"Codex {count}", "tooltip": html.escape("\n".join(rows)),
-            "class": ["pending" if count else "idle"] + ([] if snapshot.get("niri_connected") else ["disconnected"])}
+            "class": ["pending" if count else "idle"] + ([] if connected else ["disconnected"])}
 
 
 async def stream():

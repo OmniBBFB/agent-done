@@ -18,7 +18,8 @@ from websockets.asyncio.client import unix_connect
 from websockets.asyncio.server import unix_serve
 from websockets.exceptions import ConnectionClosed
 
-from .desktop import codex_pid, start_ticks, window_identity
+from .desktop import window_identity
+from .process import codex_pid, start_ticks
 from .ipc import async_request, request
 from .paths import codex_socket, private_dir, runtime_dir, state_dir
 
@@ -121,6 +122,16 @@ class Observer:
             raw_key = rpc_key(params.get("requestId"))
             context = self.server_requests.pop(raw_key, (sid, self.connection + ":" + raw_key))
             await self.emit({"op": "request_close", "session": context[0], "key": context[1]})
+        elif method == "item/completed":
+            item = params.get("item") or {}
+            # request_user_input_async emits a question card as an agent message,
+            # not a server RPC. The model can continue after sending this card.
+            if (item.get("type") == "agentMessage" and item.get("delivery") == "async"
+                    and item.get("questions") and item.get("id")):
+                await self.emit({"op": "request_open", "connection": self.connection, "session": sid,
+                                 "turn": params.get("turnId") or "",
+                                 "key": self.connection + ":async-question:" + str(item["id"]),
+                                 "kind": "question"})
         elif method == "thread/name/updated":
             await self.emit({"op": "title", "session": sid, "title": params.get("threadName") or params.get("name") or ""})
         elif method in ("thread/archived", "thread/deleted", "thread/closed"):
@@ -135,7 +146,7 @@ async def ensure_service():
     except (OSError, ValueError, RuntimeError, asyncio.TimeoutError):
         pass
     unit = Path.home() / ".config/systemd/user/agent-done.service"
-    if unit.exists():
+    if sys.platform.startswith("linux") and unit.exists():
         process = await asyncio.create_subprocess_exec("systemctl", "--user", "start", "agent-done.service",
                     stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
         await asyncio.wait_for(process.wait(), 5)
@@ -163,8 +174,8 @@ async def launch(arguments):
     if any(a == "--no-daemon" or a == "--remote" or a.startswith("--remote=") for a in arguments):
         raise RuntimeError("此入口管理本机 daemon 连接，请移除 --remote / --no-daemon")
     try:
-        identity_base = window_identity()
         await ensure_service()
+        identity_base = await window_identity()
     except (OSError, RuntimeError, asyncio.TimeoutError):
         print("agent-done：提醒暂不可用，继续启动 Codex。", file=sys.stderr)
         return subprocess.call([executable, *arguments])

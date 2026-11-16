@@ -46,7 +46,7 @@ def main(argv=None):
                 arguments = arguments[1:]
             code = asyncio.run(launch(arguments))
             raise SystemExit(code if code >= 0 else 128 - code)
-        parser = argparse.ArgumentParser(prog="agent-done", description="Codex 待处理会话提醒（niri + Waybar）")
+        parser = argparse.ArgumentParser(prog="agent-done", description="Codex 待介入会话导航")
         parser.add_argument("--version", action="version", version=__version__)
         commands = parser.add_subparsers(dest="command", required=True)
         commands.add_parser("codex", help="启动或恢复受跟踪的 Codex；参数原样传递")
@@ -75,21 +75,20 @@ def main(argv=None):
         elif args.command == "jump":
             from .navigation import jump
             target = jump()
-            print(f"已跳到窗口 {target['window_id']}（{target['session']}）" if target else "没有可跳转的待介入会话")
+            print(f"已请求聚焦窗口 {target['window_id']}（{target['session']}）" if target else "没有可跳转的待介入会话")
         elif args.command == "doctor":
-            from .desktop import niri_socket, niri_query
             from .ipc import request
             checks = {"version": __version__, "codex_socket": str(codex_socket()), "codex_available": codex_socket().exists(),
-                      "control_socket": str(control_socket()), "niri_socket": niri_socket()}
-            try:
-                checks["niri_available"] = isinstance(niri_query("windows"), list)
-            except (OSError, RuntimeError, ValueError):
-                checks["niri_available"] = False
+                      "control_socket": str(control_socket())}
             try:
                 result = request({"op": "diagnostics"})
                 checks.update(service_available=True, pending_count=result["snapshot"]["pending_count"],
                               niri_connected=result["snapshot"]["niri_connected"],
+                              desktop_backend=result["snapshot"].get("desktop_backend", "niri"),
+                              desktop_connected=result["snapshot"].get("desktop_connected", result["snapshot"]["niri_connected"]),
+                              desktop_error=result["snapshot"].get("desktop_error", ""),
                               status_subscribers=result.get("subscribers", 0), recent_hooks=result["hooks"])
+                checks["experimental"] = checks["desktop_backend"] in ("macos", "yabai")
             except (OSError, RuntimeError, ValueError):
                 checks["service_available"] = False
             print(json.dumps(checks, ensure_ascii=False, indent=2))

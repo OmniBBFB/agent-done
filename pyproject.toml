@@ -5,10 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-done"
 version = "0.1.0"
-description = "Codex attention notifications for niri and Waybar"
+description = "Keyboard navigation for Codex attention across desktop backends"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["websockets>=15,<18"]
+dependencies = [
+    "websockets>=15,<18",
+    "psutil>=6,<8; sys_platform == 'darwin'",
+    "pyobjc-framework-ApplicationServices>=10,<13; sys_platform == 'darwin'",
+]
 
 [project.scripts]
 agent-done = "agent_done.cli:main"

@@ -1,41 +1,57 @@
-"""Focus the oldest pending conversation using its live window ID."""
+"""Choose pending conversations; only observed focus acknowledges attention."""
 
-import os
-import subprocess
+import asyncio
 
-from .desktop import niri_query, niri_socket, start_ticks
 from .ipc import request
+from .process import same_process
 
 
 def _alive(view):
-    return (start_ticks(view["pid"]) == view["start_ticks"] and
-            start_ticks(view["owner_pid"]) == view["owner_start_ticks"])
+    return (same_process(view["pid"], view["start_ticks"]) and
+            same_process(view["owner_pid"], view["owner_start_ticks"]))
+
+
+def _pending(snapshot):
+    return sorted((s for s in snapshot["sessions"] if s["pending"]),
+                  key=lambda s: (s["updated"], s["id"]))
 
 
 def jump():
     snapshot = request({"op": "status"})["snapshot"]
-    pending = sorted((s for s in snapshot["sessions"] if s["pending"]),
-                       key=lambda s: (s["updated"], s["id"]))
-    if not pending:
+    if not _pending(snapshot):
         return None
-    socket_path = niri_socket()
-    windows = {w["id"] for w in niri_query("windows", socket_path)}
-    for session in pending:
-        for view in sorted(session["views"], key=lambda v: v["window_id"] or 0):
-            if not view["active"] or view["window_id"] not in windows or not _alive(view):
+    legacy = "desktop_backend" not in snapshot
+    if legacy:
+        # Existing Linux service can keep running while the checkout is upgraded.
+        from .desktop import Desktop, backend_name, create_adapter
+        if backend_name() != "niri":
+            raise RuntimeError("请重启 agent-done 服务以启用桌面适配")
+        desktop = Desktop(create_adapter("niri"))
+        observation = asyncio.run(desktop.snapshot())
+    else:
+        response = request({"op": "desktop_status"}, timeout=15)
+        observation, snapshot = response["desktop"], response["snapshot"]
+    backend = observation["backend"]
+    windows = {w["id"]: w for w in observation["windows"]}
+    for session in _pending(snapshot):
+        for view in sorted(session["views"], key=lambda v: (0, v["window_id"])
+                           if isinstance(v["window_id"], int) else (1, str(v["window_id"]))):
+            if (not view["active"] or view.get("backend", "niri") != backend or
+                    view["window_id"] not in windows or not _alive(view)):
                 continue
-            try:
-                subprocess.run(["niri", "msg", "action", "focus-window", "--id", str(view["window_id"])],
-                               env=dict(os.environ, NIRI_SOCKET=socket_path), capture_output=True,
-                               text=True, timeout=4, check=True)
-            except subprocess.TimeoutExpired as error:
-                raise RuntimeError("niri 聚焦窗口超时，提醒仍保留") from error
-            except subprocess.CalledProcessError as error:
-                # A window can disappear between querying and focusing. Try the
-                # next live view, without acknowledging any notification here.
-                windows = {w["id"] for w in niri_query("windows", socket_path)}
-                if view["window_id"] in windows:
-                    raise RuntimeError("niri 无法聚焦目标窗口：" + error.stderr.strip()) from error
-                continue
-            return {"session": session["id"], "window_id": view["window_id"]}
+            if legacy:
+                requested = asyncio.run(desktop.activate(view["window_id"]))
+            else:
+                try:
+                    requested = request({"op": "focus", "backend": backend, "window_id": view["window_id"],
+                                         "window_pid": view.get("window_pid"),
+                                         "window_start": view.get("window_start")}, timeout=15)["requested"]
+                except RuntimeError:
+                    # Disappearance is a recoverable race, a rejected focus isn't.
+                    response = request({"op": "desktop_status"}, timeout=15)
+                    if view["window_id"] in {w["id"] for w in response["desktop"]["windows"]}:
+                        raise
+                    continue
+            if requested:
+                return {"session": session["id"], "window_id": view["window_id"]}
     return None

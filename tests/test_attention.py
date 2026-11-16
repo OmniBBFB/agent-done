@@ -117,8 +117,8 @@ class AttentionTests(unittest.TestCase):
         self.done("chat")
         s.unbind("old")
         s.bind("new", "chat", identity(11, 124))
-        s.windows = {11: {"workspace_id": 7, "layout": {"pos_in_scrolling_layout": [3, 2]}}}
-        s.workspaces = {7: {"idx": 4, "output": "DP-1"}}
+        s.observe_desktop({"backend": "niri", "focused": None, "windows": [
+            {"id": 11, "position": {"output": "DP-1", "workspace": 4, "row": 2, "column": 3, "floating": False}}]})
         self.done("chat", "t2")
         view = self.rows()["chat"]["views"][0]
         self.assertEqual((view["pid"], view["window_id"]), (124, 11))

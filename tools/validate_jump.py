@@ -52,7 +52,8 @@ def run(pending_requests=False, terminal='kitty', output_path=None):
     output_name = "jump-pending-2026-11-03" if pending_requests else "jump-2026-11-03"
     report_path = output_path or Path(__file__).resolve().parent.parent / "outputs" / output_name / terminal / "result.json"
     with tempfile.TemporaryDirectory(prefix="agent-done-jump-") as directory:
-        os.environ.update(XDG_RUNTIME_DIR=directory, AGENT_DONE_STATE_DIR=directory + "/state")
+        os.environ.update(XDG_RUNTIME_DIR=directory, AGENT_DONE_STATE_DIR=directory + "/state",
+                          AGENT_DONE_RUNTIME_DIR=directory + "/agent-done")
         try:
             service = subprocess.Popen([BIN, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             wait(lambda: (Path(directory) / "agent-done/control.sock").exists())
@@ -67,10 +68,12 @@ def run(pending_requests=False, terminal='kitty', output_path=None):
                 processes.append(process)
                 window = wait(lambda: next((w for w in niri_query("windows") if w.get("pid") == process.pid), None))
                 discovered = wait(lambda: json.loads(identity_path.read_text()) if identity_path.exists() and identity_path.stat().st_size else None)
+                if "error" in discovered:
+                    raise RuntimeError(discovered["error"])
                 assert discovered['window_id'] == window['id'], 'terminal child mapped to the wrong niri window'
                 action("move-window-to-workspace", "--window-id", str(window["id"]), "--focus", "false", str(target_workspace))
                 sid = f"jump-test-{index + 1}"
-                identity = {"window_id": discovered["window_id"], "pid": discovered['pid'], "start_ticks": discovered['start_ticks'],
+                identity = {**discovered, "pid": discovered['pid'], "start_ticks": discovered['start_ticks'],
                             "owner_pid": process.pid, "owner_start_ticks": start_ticks(process.pid)}
                 request({"op": "bind", "connection": sid, "session": sid, "identity": identity})
             action("focus-window", "--id", str(original["id"]))

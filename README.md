@@ -5,12 +5,12 @@
 面向已有终端与桌面工作流、并行运行多个 CLI agent 的用户，优先提供键盘驱动的待介入会话导航，通知与计数帮助用户决定何时切回。
 当前版本针对本机 Linux + Codex CLI + niri + Waybar：状态栏显示待查看会话个数和终端位置，按 **Mod+N** 跳到最早待查看的会话，实际聚焦后清除提醒，再按进入下一个。
 
-其他平台与 agent 的支持属于调研方向，尚未实现。架构、源码职责和开发验证方法见[开发说明](docs/development.md)。
+已接入实验性的 macOS + yabai / 原生 Accessibility 后端，尚未进行 macOS 实机验收，使用方法见 [macOS 接入说明](docs/macos.md)。GNOME、Windows 与其他 agent 仍未接入。架构和开发验证方法见[开发说明](docs/development.md)。
 
 当前已验证 Kitty 和 Alacritty 的独立 OS 窗口。生产代码通过进程父链与 niri 窗口 PID 关联，
 不要求终端名为 Alacritty。每个 agent 使用独立 OS 窗口；不要把不同 agent 放进同一 Kitty
 窗口的标签页或分屏，当前提醒和跳转按 niri 窗口处理，不能区分这些内部区域。
-Linux 的 niri/Waybar 通知集成不直接适用于 macOS。
+Linux 的 niri/Waybar 安装集成不适用于 macOS；macOS 首期使用手动服务和快捷键。
 
 ## 日常使用
 
@@ -96,7 +96,7 @@ pkill -USR2 -x waybar
 
 包装器从真实进程祖先识别终端窗口，从会话创建、恢复响应登记会话身份。转发器为用户会话补齐 hook 配置，并观察真正的回合完成、授权和提问请求。它不会改写用户的授权决定或回答。内部标题生成和子 agent 不作为独立待查看会话。
 
-`Stop` hook 只作为停止候选；以 `turn/completed` 确认结束，避免其他 Stop hook 请求继续生成时误报。`PermissionRequest` 也不直接算等待人工，须观察到客户端授权请求。结构化提问通过本地协议观察补齐普通 hook 的覆盖。
+`Stop` hook 只作为停止候选；以 `turn/completed` 确认结束，避免其他 Stop hook 请求继续生成时误报。`PermissionRequest` 也不直接算等待人工，须观察到客户端授权请求。结构化提问通过本地协议观察补齐普通 hook 的覆盖：包括请求用户输入的 RPC，以及 `request_user_input_async` 产生的异步问题卡片。异步卡片出现时即可提醒，agent 可以继续执行；后续回合完成转为完成状态，新用户回合清理旧问题记录。切回窗口只确认已查看，不提交回答。
 
 hook 仅发送事件类型、会话 ID、回合 ID 和来源，短超时、失败放行。状态服务不可用时，Codex 消息继续转发；启动时提醒服务不可用则继续启动普通 Codex，并显示提示。跟踪服务恢复后需要重新启动或恢复该会话来登记。
 

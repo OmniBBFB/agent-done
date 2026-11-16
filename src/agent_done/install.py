@@ -38,6 +38,8 @@ def write_file(path, text):
 
 
 def install():
+    if sys.platform == "darwin":
+        raise RuntimeError("macOS 目前使用手动服务与快捷键，请参阅 docs/macos.md；install 仅安装 Linux/Waybar 集成")
     target = executable()
     binary = Path.home() / ".local/bin/agent-done"
     binary.parent.mkdir(parents=True, exist_ok=True)

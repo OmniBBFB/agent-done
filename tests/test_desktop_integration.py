@@ -15,9 +15,8 @@ class DesktopIntegrationTests(unittest.TestCase):
         state = State(":memory:")
         try:
             state.bind("a", "chat", {"window_id": 10, "pid": 123, "start_ticks": "45"}, "<b>unsafe & title</b>")
-            state.windows = {10: {"workspace_id": 1, "layout": {"pos_in_scrolling_layout": [3, 2]}}}
-            state.workspaces = {1: {"idx": 2, "output": "DP-1"}}
-            state.niri_connected = True
+            state.observe_desktop({"backend": "niri", "focused": None, "windows": [
+                {"id": 10, "position": {"output": "DP-1", "workspace": 2, "row": 2, "column": 3, "floating": False}}]})
             state.complete("chat", "t", "completed")
             obj = render(state.snapshot())
             self.assertEqual(obj["text"], "Codex 1")

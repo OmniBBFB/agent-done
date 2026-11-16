@@ -10,6 +10,9 @@ def state_dir():
 
 
 def runtime_dir():
+    explicit = os.environ.get("AGENT_DONE_RUNTIME_DIR")
+    if explicit:
+        return Path(explicit)
     base = os.environ.get("XDG_RUNTIME_DIR")
     if not base and Path(f"/run/user/{os.getuid()}").is_dir():
         base = f"/run/user/{os.getuid()}"
