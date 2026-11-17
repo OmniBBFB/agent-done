@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import signal
+import sys
 
 from .desktop import Desktop
 from .process import same_process
@@ -55,7 +56,10 @@ class Runtime:
                 return {"ok": True, "desktop": desktop, "snapshot": self.state.snapshot()}
             requested = await self.desktop.activate(message["window_id"], message.get("window_pid"),
                                                      message.get("window_start"))
-            # A successful request does not update attention state.
+            # Read back actual focus now instead of waiting for the next poll.
+            # An accepted request alone still never acknowledges attention.
+            if requested:
+                self.observed(await self.desktop.snapshot())
             return {"ok": True, "requested": requested}
         except RuntimeError as error:
             self.disconnected(str(error))
@@ -108,6 +112,7 @@ class Runtime:
         if op == "diagnostics":
             result["hooks"] = s.diagnostics()
             result["subscribers"] = len(self.subscribers)
+            result["service_executable"] = sys.executable
         return result
 
     async def client(self, reader, writer):

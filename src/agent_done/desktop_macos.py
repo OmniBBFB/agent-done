@@ -5,6 +5,7 @@ screen recording or CGS Space switching are used to guess window identity.
 """
 
 import uuid
+import sys
 
 from .process import start_ticks, same_process
 
@@ -25,7 +26,7 @@ class Accessibility:
 
     def check(self):
         if not self.ax.AXIsProcessTrusted():
-            raise RuntimeError("请在 macOS 辅助功能设置中授权运行 agent-done 服务的 Python 进程")
+            raise RuntimeError(f"请在 macOS 辅助功能设置中授权服务进程 {sys.executable}，然后重启服务")
 
     def app(self, pid):
         app = self.ax.AXUIElementCreateApplication(pid)

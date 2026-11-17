@@ -81,10 +81,10 @@ class Desktop:
                 return await asyncio.shield(task)
             except asyncio.CancelledError:
                 # A cancelled waiter must not unlock while native code still runs.
-                try:
-                    await task
-                finally:
-                    raise
+                # Preserve cancellation even if the native call fails meanwhile;
+                # otherwise watch() treats that error as recoverable and restarts.
+                await asyncio.gather(task, return_exceptions=True)
+                raise
             except (OSError, ValueError, subprocess.SubprocessError) as error:
                 raise RuntimeError(desktop_error(error)) from error
 

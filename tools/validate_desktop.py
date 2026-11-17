@@ -96,6 +96,8 @@ def run(backend, terminal, output):
             for index, remaining in ((0, 1), (1, 0)):
                 result = subprocess.run([sys.executable, "-m", "agent_done", "jump"],
                                         capture_output=True, text=True, check=True, timeout=20)
+                report.setdefault("jumps", []).append({"target": index, "stdout": result.stdout,
+                                                        "stderr": result.stderr, "snapshot": status()})
                 current = wait(lambda: s if (s := status())["pending_count"] == remaining else None)
                 assert current["focused_window"] == identities[index]["window_id"]
                 session = next(s for s in current["sessions"] if s["id"] == f"desktop-test-{index}")
@@ -112,6 +114,12 @@ def run(backend, terminal, output):
             report["passed"] = True
         except Exception as error:
             report["error"] = str(error)
+            report["identities"] = identities
+            try:
+                report["failure_snapshot"] = status()
+                report["failure_desktop"] = request({"op": "desktop_status"}, timeout=15)["desktop"]
+            except (OSError, RuntimeError, ValueError, TimeoutError) as diagnostic_error:
+                report["diagnostic_error"] = str(diagnostic_error)
             raise
         finally:
             # Kill only the probe processes we created, never an existing terminal.

@@ -1,6 +1,6 @@
 # macOS 实验性接入
 
-已实现 yabai 和原生 Accessibility 两条接入路径，尚未在 macOS 实机验收。Linux/niri 的测试结果不代表 macOS 已可用。第一期使用本地 Codex CLI、独立 OS 终端窗口和手动服务/快捷键；终端内部标签页、分屏不在支持范围。
+已实现 yabai 和原生 Accessibility 两条实验性接入路径。yabai 已在 macOS + Alacritty 上通过独立窗口、待处理计数、焦点确认和真实 Codex 完成事件的首轮实测；AX 的真实窗口验收仍需要本机辅助功能授权。跨 Space、原生全屏等路径需分别验收，Linux/niri 的测试结果不能替代 macOS 验收。使用本地 Codex CLI 和独立 OS 终端窗口；终端内部标签页、分屏不在支持范围。
 
 ## 安装与后端选择
 
@@ -70,7 +70,11 @@ AGENT_DONE_DESKTOP=yabai .venv/bin/agent-done serve
 
 客户端默认使用服务已选择的后端。若客户端显式设置 `AGENT_DONE_DESKTOP`，应与服务一致。更换后端需要停止旧服务、以新配置启动，并重新启动或恢复受跟踪会话。
 
-当前 `install` 命令仍仅安装 Linux/Waybar 集成，不会自动写入 launchd、菜单栏或 macOS 键位。可以在自己的快捷键工具中绑定 `/path/to/agent-done/.venv/bin/agent-done jump`；这需要单独验证物理按键路径。
+当前 `install` 命令仍仅安装 Linux/Waybar 集成，不会自动写入 launchd 或 macOS 键位。可以在自己的快捷键工具中绑定 `/path/to/agent-done/.venv/bin/agent-done jump`；这需要单独验证物理按键路径。
+
+菜单栏入口使用 `/path/to/agent-done/.venv/bin/agent-done menubar` 启动，显示 `AD 0` 等待处理会话计数。菜单包含待处理会话、桌面连接错误和跳到下一个会话的操作。退出菜单栏不会停止后台服务。该入口依赖已运行的服务，未连接时显示 `AD ?`，桌面后端断连时显示 `AD 0 !` 等带叹号的计数，悬浮或展开菜单可查看原因。不弹出 Dock 图标；如需登录自启，可将此命令单独配置为用户 LaunchAgent。
+
+菜单栏通过 IPC 订阅接收状态变化，并立即交给主线程刷新，不按秒轮询。跳转由服务在操作前检查窗口及进程身份，聚焦后立即回读实际焦点；尚未聚焦时仍由桌面监听确认，不能仅因聚焦命令成功就清除提醒。
 
 ## 身份、权限与失败行为
 
@@ -106,7 +110,15 @@ uv run python tools/validate_desktop.py --backend macos --terminal kitty --outpu
 
 原生接入在任何来源窗口尚未登记时，`desktop_connected=true` 只表示 AX 查询成功，不能证明会话绑定或跳转已通过。若启动时提示“提醒暂不可用，继续启动 Codex”，该次是普通 Codex 回退，不能算作接入成功。
 
-未通过实机验收的组合继续标为实验性。当前自动测试与 Linux/niri 真实窗口回归已有结果，macOS 的依赖安装、权限、终端来源识别和实际激活仍需首轮实机验证。
+未完成全量实机验收的组合继续标为实验性。yabai + Alacritty 已验证基础窗口导航、真实完成事件及本机 skhd 快捷键；AX、其他快捷键工具及跨 Space 等路径仍需分别验证。逐次结果保存在本地 `outputs/`，不随仓库分发。
+
+## 完成后没有计数或无法跳转
+
+先运行 `agent-done doctor`。`service_available=true` 只表示 IPC 可用，还需确认 `desktop_connected=true`。原生后端提示辅助功能权限不足时，应授权实际运行服务的可执行文件，随后重启服务；改名或更换解释器后应重新检查权限。已有正常工作的 yabai 可以显式选择 `AGENT_DONE_DESKTOP=yabai`，不会自动切换后端。
+
+接着检查 `agent-done status --json` 中是否存在当前会话及 `active=true` 的 view。只用普通 `codex` 启动，或者包装器提示“提醒暂不可用”后回退的会话，不会被跟踪。修复权限或切换后端后，需退出并用 `agent-done codex resume <会话ID>` 重新登记。后台完成才增加提醒；在准确源窗口已聚焦时完成会视为已查看。
+
+有待处理项时先执行 `agent-done jump`。命令能跳转而快捷键不能时，检查快捷键工具的绑定、辅助功能权限及日志。模拟按键未触发不能证明物理按键失效，需从其他窗口实际按键验证。
 
 ## 路径与诊断
 

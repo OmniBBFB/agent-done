@@ -176,8 +176,8 @@ async def launch(arguments):
     try:
         await ensure_service()
         identity_base = await window_identity()
-    except (OSError, RuntimeError, asyncio.TimeoutError):
-        print("agent-done：提醒暂不可用，继续启动 Codex。", file=sys.stderr)
+    except (OSError, RuntimeError, asyncio.TimeoutError) as error:
+        print(f"agent-done：提醒暂不可用（{error or '服务请求超时'}），继续启动 Codex。", file=sys.stderr)
         return subprocess.call([executable, *arguments])
     if not codex_socket().exists():
         process = await asyncio.create_subprocess_exec(executable, "app-server", "daemon", "start")

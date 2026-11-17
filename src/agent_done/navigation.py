@@ -1,7 +1,5 @@
 """Choose pending conversations; only observed focus acknowledges attention."""
 
-import asyncio
-
 from .ipc import request
 from .process import same_process
 
@@ -22,22 +20,26 @@ def jump():
         return None
     legacy = "desktop_backend" not in snapshot
     if legacy:
+        import asyncio
         # Existing Linux service can keep running while the checkout is upgraded.
         from .desktop import Desktop, backend_name, create_adapter
         if backend_name() != "niri":
             raise RuntimeError("请重启 agent-done 服务以启用桌面适配")
         desktop = Desktop(create_adapter("niri"))
         observation = asyncio.run(desktop.snapshot())
+        backend = observation["backend"]
+        windows = {w["id"]: w for w in observation["windows"]}
     else:
-        response = request({"op": "desktop_status"}, timeout=15)
-        observation, snapshot = response["desktop"], response["snapshot"]
-    backend = observation["backend"]
-    windows = {w["id"]: w for w in observation["windows"]}
+        # The service validates a fresh window snapshot and owner identity in
+        # focus. Querying the whole desktop here repeats that work before every
+        # jump and adds another serialized desktop round trip.
+        backend = snapshot["desktop_backend"]
+        windows = None
     for session in _pending(snapshot):
         for view in sorted(session["views"], key=lambda v: (0, v["window_id"])
                            if isinstance(v["window_id"], int) else (1, str(v["window_id"]))):
             if (not view["active"] or view.get("backend", "niri") != backend or
-                    view["window_id"] not in windows or not _alive(view)):
+                    (windows is not None and view["window_id"] not in windows) or not _alive(view)):
                 continue
             if legacy:
                 requested = asyncio.run(desktop.activate(view["window_id"]))

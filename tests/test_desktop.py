@@ -7,6 +7,7 @@ from pathlib import Path
 import sqlite3
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -113,12 +114,40 @@ class DesktopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.state.snapshot()["pending_count"], 0)
         self.assertEqual(self.state.db.execute("SELECT COUNT(*) FROM requests").fetchone()[0], 1)
 
+    async def test_cancellation_survives_native_permission_error(self):
+        started, release = threading.Event(), threading.Event()
+
+        def failing_snapshot():
+            started.set()
+            release.wait(2)
+            raise RuntimeError("permission revoked")
+
+        self.adapter.snapshot = failing_snapshot
+        task = asyncio.create_task(self.desktop.snapshot())
+        try:
+            self.assertTrue(await asyncio.to_thread(started.wait, 2))
+            task.cancel()
+            await asyncio.sleep(0)
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        finally:
+            release.set()
+            await asyncio.gather(task, return_exceptions=True)
+
     async def test_reused_window_owner_is_rejected_before_focus(self):
         self.adapter.windows[0]["start"] = "replacement"
         result = await self.runtime.desktop_request({"op": "focus", **self.identity})
         self.assertFalse(result["requested"])
         self.assertEqual(self.adapter.activations, [])
         self.assertEqual(self.state.snapshot()["pending_count"], 1)
+
+    async def test_focus_readback_acknowledges_without_waiting_for_watcher(self):
+        self.adapter.activate = lambda target: setattr(self.adapter, "focused", target)
+        result = await self.runtime.desktop_request({"op": "focus", **self.identity})
+        self.assertTrue(result["requested"])
+        self.assertEqual(self.state.snapshot()["pending_count"], 0)
+        self.assertEqual(self.state.db.execute("SELECT COUNT(*) FROM requests").fetchone()[0], 1)
 
     async def test_backend_collision_cannot_focus_or_ack_another_view(self):
         with self.assertRaisesRegex(RuntimeError, "不一致"):

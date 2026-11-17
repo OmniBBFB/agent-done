@@ -43,6 +43,7 @@ class DesktopIntegrationTests(unittest.TestCase):
             executable.parent.mkdir(parents=True)
             executable.write_text("placeholder")
             with patch("pathlib.Path.home", return_value=home), patch("agent_done.install.executable", return_value=executable), \
+                 patch("agent_done.install.sys", type("Platform", (), {"platform": "linux"})), \
                  patch.dict(os.environ, {"XDG_STATE_HOME": str(home / "state")}, clear=False):
                 first = install()
                 second = install()

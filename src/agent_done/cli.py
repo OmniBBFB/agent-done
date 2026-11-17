@@ -58,11 +58,17 @@ def main(argv=None):
         ack = commands.add_parser("ack", help="手动清除提醒（默认全部）")
         ack.add_argument("--session")
         commands.add_parser("doctor", help="检查本机接入情况")
+        commands.add_parser("menubar", help="运行 macOS 菜单栏入口")
         commands.add_parser("install", help="安装用户入口、服务文件与 Waybar 模块，并备份配置")
         args = parser.parse_args(argv)
         if args.command == "serve":
             from .runtime import serve
             asyncio.run(serve())
+        elif args.command == "menubar":
+            if sys.platform != "darwin":
+                raise RuntimeError("menubar 仅支持 macOS")
+            from .menubar import run
+            run()
         elif args.command == "waybar":
             from .waybar import stream
             try:
@@ -87,6 +93,7 @@ def main(argv=None):
                               desktop_backend=result["snapshot"].get("desktop_backend", "niri"),
                               desktop_connected=result["snapshot"].get("desktop_connected", result["snapshot"]["niri_connected"]),
                               desktop_error=result["snapshot"].get("desktop_error", ""),
+                              service_executable=result.get("service_executable"),
                               status_subscribers=result.get("subscribers", 0), recent_hooks=result["hooks"])
                 checks["experimental"] = checks["desktop_backend"] in ("macos", "yabai")
             except (OSError, RuntimeError, ValueError):

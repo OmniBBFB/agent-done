@@ -5,7 +5,7 @@
 面向已有终端与桌面工作流、并行运行多个 CLI agent 的用户，优先提供键盘驱动的待介入会话导航，通知与计数帮助用户决定何时切回。
 当前版本针对本机 Linux + Codex CLI + niri + Waybar：状态栏显示待查看会话个数和终端位置，按 **Mod+N** 跳到最早待查看的会话，实际聚焦后清除提醒，再按进入下一个。
 
-已接入实验性的 macOS + yabai / 原生 Accessibility 后端，尚未进行 macOS 实机验收，使用方法见 [macOS 接入说明](docs/macos.md)。GNOME、Windows 与其他 agent 仍未接入。架构和开发验证方法见[开发说明](docs/development.md)。
+已接入实验性的 macOS + yabai / 原生 Accessibility 后端，并提供 macOS 菜单栏入口。yabai + Alacritty 已完成基础窗口导航和真实完成事件的首轮实测，AX 仍需完成辅助功能授权后的实机验收，使用方法见 [macOS 接入说明](docs/macos.md)。GNOME、Windows 与其他 agent 仍未接入。架构和开发验证方法见[开发说明](docs/development.md)。
 
 当前已验证 Kitty 和 Alacritty 的独立 OS 窗口。生产代码通过进程父链与 niri 窗口 PID 关联，
 不要求终端名为 Alacritty。每个 agent 使用独立 OS 窗口；不要把不同 agent 放进同一 Kitty

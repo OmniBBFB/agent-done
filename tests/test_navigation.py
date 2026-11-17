@@ -24,6 +24,8 @@ class NavigationTests(unittest.TestCase):
         if event["op"] == "desktop_status":
             return {"ok": True, "desktop": self.observations(), "snapshot": self.state.snapshot()}
         if event["op"] == "focus":
+            if event["window_id"] not in self.windows:
+                return {"ok": True, "requested": False}
             return {"ok": True, "requested": self.activate(event["window_id"])}
         return {"ok": True, "snapshot": self.state.snapshot()}
 
@@ -70,6 +72,11 @@ class NavigationTests(unittest.TestCase):
         self.observations.assert_not_called()
         self.activate.assert_not_called()
 
+    def test_service_validates_target_without_redundant_desktop_round_trip(self):
+        self.done("old", 10, 1)
+        self.assertEqual(jump(), {"session": "old", "window_id": 10})
+        self.assertEqual([call["op"] for call in self.calls], ["status", "focus"])
+
     def test_hidden_closed_and_other_backend_views_are_skipped(self):
         self.done("hidden", 10, 1, connection="terminal")
         self.state.bind("terminal", "foreground", {"window_id": 10, "pid": 1, "start_ticks": "123"})
@@ -104,6 +111,7 @@ class NavigationTests(unittest.TestCase):
         self.done("mac", "service-epoch:1", 1, backend="macos")
         self.observations.side_effect = None
         self.observations.return_value = {"backend": "macos", "windows": [{"id": "service-epoch:1"}]}
+        self.windows = ["service-epoch:1"]
         self.assertEqual(jump()["window_id"], "service-epoch:1")
         self.assertTrue(self.state.snapshot()["sessions"][0]["pending"])
 

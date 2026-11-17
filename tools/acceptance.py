@@ -85,6 +85,7 @@ def terminal(artifacts, resume=None):
 
 
 def start(artifacts, resume=None, terminal_name='kitty'):
+    artifacts = artifacts.resolve()
     artifacts.mkdir(parents=True, mode=0o700)
     args = terminal_command(terminal_name, 'agent-done-acceptance', 'agent-done acceptance',
                             [PYTHON, Path(__file__).resolve(), 'terminal', artifacts])

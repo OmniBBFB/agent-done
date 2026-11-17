@@ -1,6 +1,6 @@
 # 开发说明
 
-agent-done 在现有终端之外维护 CLI agent 的待查看状态，并通过桌面窗口管理器定位和聚焦会话。当前已验证本机 Codex CLI + niri + Waybar，另有尚未实机验证的 macOS/yabai 与原生 AX 接入；每个 agent 使用独立 OS 窗口。
+agent-done 在现有终端之外维护 CLI agent 的待查看状态，并通过桌面窗口管理器定位和聚焦会话。当前已验证本机 Codex CLI + niri + Waybar；macOS/yabai + Alacritty 已完成基础窗口导航及真实完成事件的首轮实测，原生 AX 接入仍待授权后的实机验证。每个 agent 使用独立 OS 窗口。
 
 安装和日常操作见 [README](../README.md)。本文介绍当前架构、开发入口和验证方法。
 
@@ -39,6 +39,7 @@ uv run python -m unittest discover -s tests -v
 | [navigation.py](../src/agent_done/navigation.py) | 从待查看队列选择有效目标并通过桌面接口请求聚焦 |
 | [ipc.py](../src/agent_done/ipc.py)、[paths.py](../src/agent_done/paths.py) | 本地控制协议和路径 |
 | [waybar.py](../src/agent_done/waybar.py)、[install.py](../src/agent_done/install.py) | 状态栏输出、用户入口与配置安装 |
+| [menubar.py](../src/agent_done/menubar.py) | macOS 菜单栏计数、连接错误和跳转入口 |
 
 启动包装器沿进程父链匹配桌面后端提供的窗口 PID，从会话创建或恢复响应获取会话 ID。同一进程有多个窗口时，在来源登记阶段用其聚焦窗口消歧；提醒服务使用已经建立的绑定定位来源，不使用事件发生时的前台窗口推测来源。
 
