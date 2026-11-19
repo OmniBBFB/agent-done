@@ -20,7 +20,7 @@ from websockets.exceptions import ConnectionClosed
 
 from .desktop import window_identity
 from .process import codex_pid, start_ticks
-from .ipc import async_request, request
+from .ipc import async_request
 from .paths import codex_socket, private_dir, runtime_dir, state_dir
 
 LOG = logging.getLogger(__name__)
@@ -139,6 +139,48 @@ class Observer:
             self.sessions.discard(sid)
 
 
+async def forward(source, target, observe):
+    async for raw in source:
+        try:
+            message = json.loads(raw)
+        except (ValueError, TypeError):
+            await target.send(raw)
+            continue
+        if not isinstance(message, dict):
+            await target.send(raw)
+            continue
+        try:
+            replacement = await observe(message)
+        except (KeyError, TypeError, ValueError):
+            LOG.exception("unrecognized Codex event; forwarding unchanged")
+        else:
+            if replacement is not None:
+                message = replacement
+        await target.send(json.dumps(message))
+
+
+async def proxy_connection(client, identity, emit):
+    connection = str(uuid.uuid4())
+    observer = Observer(connection, identity, emit)
+    try:
+        async with unix_connect(str(codex_socket()), max_size=None, ping_interval=None, close_timeout=2) as upstream:
+            tasks = (
+                asyncio.create_task(forward(client, upstream, observer.client)),
+                asyncio.create_task(forward(upstream, client, observer.server)),
+            )
+            try:
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                await asyncio.gather(*done)
+            finally:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+    except (OSError, ConnectionClosed):
+        LOG.info("Codex connection closed")
+    finally:
+        await emit({"op": "unbind", "connection": connection})
+
+
 async def ensure_service():
     try:
         await async_request({"op": "status"}, timeout=0.3)
@@ -186,8 +228,8 @@ async def launch(arguments):
     private_dir(runtime_dir())
     owner_pid = os.getpid()
     owner_ticks = start_ticks(owner_pid)
-    connection = str(uuid.uuid4())
     process = None
+    child_started = asyncio.Event()
     warned = False
 
     async def emit(event):
@@ -204,42 +246,10 @@ async def launch(arguments):
         return dict(identity_base, pid=pid, start_ticks=start_ticks(pid),
                     owner_pid=owner_pid, owner_start_ticks=owner_ticks)
 
-    observer = Observer(connection, identity, emit)
-
     async def handle(client):
-        try:
-            async with unix_connect(str(codex_socket()), max_size=None, ping_interval=None, close_timeout=2) as upstream:
-                async def forward(source, target, from_client):
-                    async for raw in source:
-                        try:
-                            message = json.loads(raw)
-                        except (ValueError, TypeError):
-                            await target.send(raw)
-                            continue
-                        try:
-                            if from_client:
-                                message = await observer.client(message)
-                            else:
-                                await observer.server(message)
-                        except (KeyError, TypeError, ValueError):
-                            LOG.exception("unrecognized Codex event; forwarding unchanged")
-                        await target.send(json.dumps(message))
-                tasks = [asyncio.create_task(forward(client, upstream, True)),
-                         asyncio.create_task(forward(upstream, client, False))]
-                try:
-                    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-                    for task in pending:
-                        task.cancel()
-                    for task in done:
-                        task.result()
-                finally:
-                    for task in tasks:
-                        task.cancel()
-                    await asyncio.gather(*tasks, return_exceptions=True)
-        except (OSError, ConnectionClosed):
-            LOG.info("Codex connection closed")
-        finally:
-            await emit({"op": "unbind", "connection": connection})
+        await child_started.wait()
+        if process is not None:
+            await proxy_connection(client, identity, emit)
 
     with tempfile.TemporaryDirectory(prefix="codex-", dir=runtime_dir()) as directory:
         proxy_socket = Path(directory) / "proxy.sock"
@@ -252,10 +262,13 @@ async def launch(arguments):
             # Remote TUI sessions otherwise default to the daemon's directory.
             # Preserve an explicitly requested workspace, including resume flags.
             options = arguments[:arguments.index("--")] if "--" in arguments else arguments
-            directory = [] if any(a == "--cd" or a.startswith("--cd=") or a.startswith("-C")
-                                  for a in options) else ["--cd", launch_cwd]
-            process = await asyncio.create_subprocess_exec(executable, "--remote", "unix://" + str(proxy_socket),
-                                                           *hooks, *directory, *arguments)
+            cwd_args = [] if any(a == "--cd" or a.startswith("--cd=") or a.startswith("-C")
+                                 for a in options) else ["--cd", launch_cwd]
+            try:
+                process = await asyncio.create_subprocess_exec(executable, "--remote", "unix://" + str(proxy_socket),
+                                                               *hooks, *cwd_args, *arguments)
+            finally:
+                child_started.set()
             # Child inherits normal terminal signals; only the supervisor ignores
             # Ctrl-C so Codex itself can interrupt a turn without losing tracking.
             previous_int = signal.signal(signal.SIGINT, lambda *args: None)
@@ -271,4 +284,3 @@ async def launch(arguments):
                 signal.signal(signal.SIGINT, previous_int)
                 for sig in (signal.SIGTERM, signal.SIGHUP):
                     loop.remove_signal_handler(sig)
-                await emit({"op": "unbind", "connection": connection})

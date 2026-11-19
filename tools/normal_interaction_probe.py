@@ -14,19 +14,17 @@ import os
 from pathlib import Path
 import pty
 import re
-import select
 import shlex
-import signal
 import shutil
 import socket
 import struct
 import subprocess
 import sys
 import tempfile
-import termios
 import threading
 import time
-import tty
+
+from pty_bridge import bridge_terminal
 
 PROJECT = Path(__file__).resolve().parent.parent
 SCRIPT = Path(__file__).resolve()
@@ -283,54 +281,13 @@ def terminal(artifacts, resume):
                 time.sleep(0.5)
     start_adapter(artifacts)
 
-    def resize(*unused):
-        size = fcntl.ioctl(0, termios.TIOCGWINSZ, b"\0" * 8)
-        fcntl.ioctl(master, termios.TIOCSWINSZ, size)
-
-    resize()
-    signal.signal(signal.SIGWINCH, resize)
-    previous = termios.tcgetattr(0)
-    tty.setraw(0)
-    offset = 0
-    status = None
-    try:
-        with (artifacts / "tui.raw").open("ab", buffering=0) as log:
-            while True:
-                ready, _, _ = select.select([0, master], [], [], 0.1)
-                if 0 in ready:
-                    data = os.read(0, 65536)
-                    if data:
-                        os.write(master, data)
-                if master in ready:
-                    try:
-                        data = os.read(master, 65536)
-                    except OSError:
-                        break
-                    if not data:
-                        break
-                    log.write(data)
-                    os.write(1, data)
-                controls = artifacts / "input.jsonl"
-                if controls.exists():
-                    with controls.open() as stream:
-                        stream.seek(offset)
-                        for line in stream:
-                            action = json.loads(line)
-                            os.write(master, action["data"].encode())
-                        offset = stream.tell()
-                done, status_value = os.waitpid(pid, os.WNOHANG)
-                if done:
-                    status = status_value
-                    break
-    finally:
-        termios.tcsetattr(0, termios.TCSADRAIN, previous)
-        os.close(master)
-        if status is None:
-            _, status = os.waitpid(pid, 0)
+    def record_exit(status):
         for event in lines(artifacts / "events.jsonl"):
             if event.get("kind") == "binding":
                 registry(event["binding"]["session_id"], close_pid=pid)
         write_json(artifacts / "terminal-exit.json", {"tui_pid": pid, "exit_code": os.waitstatus_to_exitcode(status)})
+
+    bridge_terminal(pid, master, artifacts, record_exit)
 
 
 def lines(path):

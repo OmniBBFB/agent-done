@@ -88,6 +88,29 @@ class AttentionTests(unittest.TestCase):
         s.request_close("chat", "a2")
         self.assertEqual(self.rows()["chat"]["phase"], "running")
 
+    def test_stale_request_and_interrupt_cannot_change_active_turn(self):
+        s = self.state
+        s.bind("terminal", "chat", identity(10))
+        s.running("chat", "new")
+        s.request_open("terminal", "chat", "new", "active", "approval")
+        s.request_open("terminal", "chat", "old", "stale", "question")
+        s.hook({"session_id": "chat", "turn_id": "old", "hook_event_name": "Interrupt"})
+        s.running("chat", "new")
+        row = self.rows()["chat"]
+        self.assertEqual((row["turn_id"], row["phase"], row["pending"]), ("new", "approval", True))
+        self.assertEqual(s.db.execute("SELECT key FROM requests").fetchone()[0], "active")
+        s.complete("chat", "new", "completed")
+        self.assertEqual(self.rows()["chat"]["phase"], "done")
+
+    def test_request_without_turn_keeps_current_turn(self):
+        s = self.state
+        s.bind("terminal", "chat", identity(10))
+        s.running("chat", "current")
+        s.request_open("terminal", "chat", "", "q", "question")
+        self.assertEqual(self.rows()["chat"]["turn_id"], "current")
+        s.complete("chat", "current", "completed")
+        self.assertEqual(self.rows()["chat"]["phase"], "done")
+
     def test_auto_review_hook_and_stop_candidate_do_not_notify_prematurely(self):
         s = self.state
         s.bind("terminal", "chat", identity(10))

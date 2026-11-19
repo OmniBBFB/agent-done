@@ -8,7 +8,7 @@ import os
 import signal
 import sys
 
-from .desktop import Desktop
+from .desktop import Desktop, WindowIdentificationError
 from .process import same_process
 from .paths import control_socket, private_dir, runtime_dir, state_dir
 from .state import State
@@ -24,11 +24,7 @@ class Runtime:
         self.clients = set()
         self.previous = None
         if desktop is not None:
-            self.state.desktop_backend = desktop.name
-            with self.state.db:
-                if desktop.adapter.ephemeral:
-                    self.state.db.execute("UPDATE views SET active=0 WHERE backend=?", (desktop.name,))
-                self.state.db.execute("UPDATE views SET active=0 WHERE backend!=?", (desktop.name,))
+            self.state.initialize_desktop(desktop.name, ephemeral=desktop.ephemeral)
 
     def observed(self, snapshot):
         self.state.observe_desktop(snapshot)
@@ -61,6 +57,8 @@ class Runtime:
             if requested:
                 self.observed(await self.desktop.snapshot())
             return {"ok": True, "requested": requested}
+        except WindowIdentificationError:
+            raise
         except RuntimeError as error:
             self.disconnected(str(error))
             raise
@@ -172,10 +170,9 @@ class Runtime:
 
     async def prune(self):
         while True:
-            for row in self.state.db.execute("SELECT DISTINCT connection,pid,start_ticks,owner_pid,owner_start_ticks FROM views").fetchall():
-                if (not same_process(row["pid"], row["start_ticks"]) or
-                        not same_process(row["owner_pid"], row["owner_start_ticks"])):
-                    self.state.unbind(row["connection"])
+            for connection, tui, launcher in self.state.connection_processes():
+                if not same_process(*tui) or not same_process(*launcher):
+                    self.state.unbind(connection)
             self.publish()
             await asyncio.sleep(2)
 

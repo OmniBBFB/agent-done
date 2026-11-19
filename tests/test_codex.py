@@ -1,10 +1,15 @@
+import asyncio
 import copy
+import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from agent_done.codex import Observer, HOOK_EVENTS, hook_command, launch, with_hooks
+from websockets.asyncio.client import unix_connect
+from websockets.asyncio.server import unix_serve
+
+from agent_done.codex import Observer, HOOK_EVENTS, hook_command, launch, proxy_connection, with_hooks
 from agent_done.state import State
 from agent_done.runtime import Runtime
 
@@ -40,6 +45,43 @@ class LaunchDirectoryTests(unittest.IsolatedAsyncioTestCase):
                 command = await self.launch_command(arguments)
                 self.assertEqual(list(command[-len(arguments):]), arguments)
                 self.assertNotIn(str(Path.cwd()), command)
+
+
+class ProxyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_parallel_connections_with_same_request_ids_unbind_independently(self):
+        events = asyncio.Queue()
+
+        async def daemon(ws):
+            async for raw in ws:
+                request = json.loads(raw)
+                await ws.send(json.dumps({"id": request["id"], "result": {
+                    "thread": {"id": request["params"]["threadId"]}
+                }}))
+
+        async def proxy(ws):
+            await proxy_connection(ws, dict, events.put)
+
+        async def resume(ws, sid):
+            await ws.send(json.dumps({"id": 1, "method": "thread/resume", "params": {"threadId": sid}}))
+            self.assertEqual(json.loads(await ws.recv())["result"]["thread"]["id"], sid)
+            return await events.get()
+
+        with tempfile.TemporaryDirectory() as directory:
+            upstream = Path(directory) / "daemon.sock"
+            downstream = Path(directory) / "proxy.sock"
+            with patch("agent_done.codex.codex_socket", return_value=upstream):
+                async with asyncio.timeout(5), unix_serve(daemon, str(upstream)), unix_serve(proxy, str(downstream)):
+                    async with unix_connect(str(downstream)) as first:
+                        bound_first = await resume(first, "first")
+                        async with unix_connect(str(downstream)) as second:
+                            bound_second = await resume(second, "second")
+                            self.assertNotEqual(bound_first["connection"], bound_second["connection"])
+                            await first.close()
+                            self.assertEqual(await events.get(),
+                                             {"op": "unbind", "connection": bound_first["connection"]})
+                            self.assertEqual((await resume(second, "second"))["connection"], bound_second["connection"])
+                        self.assertEqual(await events.get(),
+                                         {"op": "unbind", "connection": bound_second["connection"]})
 
 
 class CodexTests(unittest.IsolatedAsyncioTestCase):

@@ -10,6 +10,10 @@ from .process import ancestors, start_ticks, codex_pid
 from .desktop_niri import niri_socket, niri_query
 
 
+class WindowIdentificationError(RuntimeError):
+    """The desktop was observed, but the source window could not be identified."""
+
+
 def backend_name():
     explicit = os.environ.get("AGENT_DONE_DESKTOP")
     if explicit:
@@ -52,11 +56,11 @@ def identify(adapter, pid):
         if len(candidates) > 1:
             candidates = [w for w in candidates if w["id"] == snapshot["focused"]]
         if len(candidates) != 1 or not candidates[0].get("start"):
-            raise RuntimeError("无法唯一识别源终端窗口，请在目标独立窗口中启动")
+            raise WindowIdentificationError("无法唯一识别源终端窗口，请在目标独立窗口中启动")
         window = candidates[0]
         return {"backend": adapter.name, "window_id": window["id"],
                 "window_pid": window["pid"], "window_start": window["start"]}
-    raise RuntimeError("无法从源进程找到终端窗口，请在本机独立终端窗口内运行")
+    raise WindowIdentificationError("无法从源进程找到终端窗口，请在本机独立终端窗口内运行")
 
 
 def desktop_error(error):
@@ -73,6 +77,10 @@ class Desktop:
         self.adapter = adapter or create_adapter()
         self.name = self.adapter.name
         self.lock = asyncio.Lock()
+
+    @property
+    def ephemeral(self):
+        return self.adapter.ephemeral
 
     async def _call(self, function, *args):
         async with self.lock:

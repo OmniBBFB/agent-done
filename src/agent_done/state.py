@@ -5,6 +5,13 @@ import sqlite3
 import time
 
 
+ACTIVE_PHASES = ("running", "approval", "question")
+
+
+def _different_turn(session, turn):
+    return bool(turn and session["turn_id"] and session["turn_id"] != turn)
+
+
 class State:
     def __init__(self, database):
         self.db = sqlite3.connect(str(database))
@@ -46,6 +53,23 @@ class State:
 
     def close(self):
         self.db.close()
+
+    def initialize_desktop(self, backend, *, ephemeral):
+        self.desktop_backend = backend
+        with self.db:
+            if ephemeral:
+                self.db.execute("UPDATE views SET active=0")
+            else:
+                self.db.execute("UPDATE views SET active=0 WHERE backend!=?", (backend,))
+
+    def connection_processes(self):
+        return [
+            (row["connection"], (row["pid"], row["start_ticks"]),
+             (row["owner_pid"], row["owner_start_ticks"]))
+            for row in self.db.execute(
+                "SELECT DISTINCT connection,pid,start_ticks,owner_pid,owner_start_ticks FROM views"
+            )
+        ]
 
     def _session(self, sid):
         return self.db.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
@@ -113,7 +137,10 @@ class State:
             row = self._session(sid)
             if not row:
                 return
-            if row["turn_id"] == turn and row["phase"] == "running":
+            if row["phase"] in ACTIVE_PHASES and not _different_turn(row, turn):
+                if turn and not row["turn_id"]:
+                    self.db.execute("UPDATE sessions SET turn_id=? WHERE id=?", (turn, sid))
+                    self.db.execute("UPDATE requests SET turn_id=? WHERE session=? AND turn_id=''", (turn, sid))
                 return
             self.db.execute("UPDATE sessions SET turn_id=?,phase='running',pending=0,reason='',updated=? WHERE id=?",
                             (turn, time.time(), sid))
@@ -137,14 +164,22 @@ class State:
 
     def request_open(self, connection, sid, turn, key, kind):
         with self.db:
-            if not self._session(sid):
+            row = self._session(sid)
+            if not row:
                 return
+            active = row["phase"] in ACTIVE_PHASES
+            if active and _different_turn(row, turn):
+                return
+            if turn and row["turn_id"] == turn and row["phase"] in ("done", "error"):
+                return
+            request_turn = turn or (row["turn_id"] if active else "")
+            unread = int(not self._visible(sid))
             inserted = self.db.execute("INSERT OR IGNORE INTO requests VALUES (?,?,?,?,?,?)",
-                                       (sid, key, kind, connection, turn, int(not self._visible(sid)))).rowcount
+                                       (sid, key, kind, connection, request_turn, unread)).rowcount
             if not inserted:
                 return
-            self.db.execute("UPDATE sessions SET turn_id=?,phase=?,pending=?,reason=?,updated=? WHERE id=?",
-                            (turn, kind, int(not self._visible(sid)), kind, time.time(), sid))
+            self.db.execute("UPDATE sessions SET turn_id=?,updated=? WHERE id=?",
+                            (request_turn, time.time(), sid))
             self._waiting_phase(sid)
 
     def _waiting_phase(self, sid):
@@ -173,6 +208,9 @@ class State:
             self.running(sid, turn)
         elif name == "Interrupt":
             with self.db:
+                row = self._session(sid)
+                if not row or _different_turn(row, turn):
+                    return
                 self.db.execute("UPDATE sessions SET phase='idle',pending=0 WHERE id=?", (sid,))
                 self.db.execute("DELETE FROM requests WHERE session=?", (sid,))
         # Stop is a candidate: other Stop hooks may continue generation. The

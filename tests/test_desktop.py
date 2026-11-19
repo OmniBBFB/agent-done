@@ -195,6 +195,16 @@ class DesktopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["identity"]["window_id"], 1)
         self.assertEqual(result["identity"]["window_start"], "one")
 
+    async def test_missing_source_window_keeps_desktop_connection_and_focus(self):
+        self.adapter.focused = 1
+        await self.runtime.desktop_request({"op": "desktop_status"})
+        with patch("agent_done.desktop.ancestors", return_value=[200]):
+            with self.assertRaisesRegex(RuntimeError, "无法从源进程"):
+                await self.runtime.desktop_request({"op": "identify", "pid": 200})
+        snapshot = self.state.snapshot()
+        self.assertTrue(snapshot["desktop_connected"])
+        self.assertEqual(snapshot["focused_window"], 1)
+
     async def test_cross_backend_bind_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, "不一致"):
             self.runtime.dispatch({"op": "bind", "connection": "bad", "session": "bad",
