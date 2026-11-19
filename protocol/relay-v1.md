@@ -1,7 +1,7 @@
 # Relay transport v1
 
 This document defines the outer transport. The encrypted payload's format is
-described separately in the [control protocol draft](control-v1.md).
+described separately in the [control protocol v1 candidate](control-v1.md).
 
 ## Connection
 

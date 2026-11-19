@@ -1,0 +1,141 @@
+{
+  "session_request": {
+    "v": 1,
+    "type": "request",
+    "id": "69335e05-f4c2-4892-962a-e051d62a8484",
+    "method": "sessions.list",
+    "params": {}
+  },
+  "session_response": {
+    "v": 1,
+    "type": "response",
+    "id": "69335e05-f4c2-4892-962a-e051d62a8484",
+    "result": {
+      "items": [
+        {
+          "session_id": "demo-session",
+          "title": "验收会话",
+          "state": "waiting",
+          "updated_at_ms": 1795000000000
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  "approval_snapshot": {
+    "v": 1,
+    "type": "response",
+    "id": "d2ff29d8-0460-4b4d-82dd-c55a38877fd2",
+    "result": {
+      "items": [
+        {
+          "session_id": "demo-session",
+          "interaction_id": "957b7681-5455-441e-aa69-d8f22eec4f9b",
+          "kind": "approval",
+          "can_approve": true,
+          "summary": "执行一次验收命令",
+          "details": {
+            "kind": "command",
+            "cwd": "/tmp/demo",
+            "command": "printf 'ok\\n'"
+          }
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  "response_submitted": {
+    "v": 1,
+    "type": "response",
+    "id": "648df507-55ba-4a28-a487-f6aa219540b9",
+    "result": {
+      "interaction_id": "957b7681-5455-441e-aa69-d8f22eec4f9b",
+      "status": "submitted"
+    }
+  },
+  "state_changed": {
+    "v": 1,
+    "type": "event",
+    "event": "state.changed",
+    "session_id": "demo-session"
+  },
+  "history_request": {
+    "v": 1,
+    "type": "request",
+    "id": "fbadbc56-5e70-441a-bf20-f01554bab7be",
+    "method": "history.page",
+    "params": {
+      "session_id": "demo-session",
+      "limit": 20
+    }
+  },
+  "history_response": {
+    "v": 1,
+    "type": "response",
+    "id": "fbadbc56-5e70-441a-bf20-f01554bab7be",
+    "result": {
+      "items": [
+        {
+          "message_id": "demo-message",
+          "role": "assistant",
+          "text": "请选择验收方式。",
+          "truncated": false
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  "question_snapshot": {
+    "v": 1,
+    "type": "response",
+    "id": "b8bb6f21-6a28-4e66-a828-6a07db0d98ff",
+    "result": {
+      "items": [
+        {
+          "session_id": "demo-session",
+          "interaction_id": "cc2ccede-bbeb-4de8-b9d0-96c45e3414ba",
+          "kind": "question",
+          "questions": [
+            {
+              "id": "q1",
+              "text": "选择验收方式",
+              "options": [
+                "A",
+                "B"
+              ],
+              "allows_text": true
+            }
+          ]
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  "question_reply": {
+    "v": 1,
+    "type": "request",
+    "id": "542344f0-a2dd-4e66-a151-8a990feb3da8",
+    "method": "interaction.respond",
+    "params": {
+      "session_id": "demo-session",
+      "interaction_id": "cc2ccede-bbeb-4de8-b9d0-96c45e3414ba",
+      "idempotency_key": "10e52a20-67e1-4e69-aa13-3d26677d8402",
+      "response": {
+        "kind": "answer",
+        "answers": {
+          "q1": [
+            "B"
+          ]
+        }
+      }
+    }
+  },
+  "reply_error": {
+    "v": 1,
+    "type": "response",
+    "id": "542344f0-a2dd-4e66-a151-8a990feb3da8",
+    "error": {
+      "code": "conflict"
+    }
+  }
+}

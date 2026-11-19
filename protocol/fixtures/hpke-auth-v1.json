@@ -1,0 +1,21 @@
+{
+  "note": "Public test-only keys. Never use these for live devices.",
+  "vectors": [
+    {
+      "from": "phone-demo",
+      "to": "workstation-demo",
+      "sender_public_key": "QYUjIP82dJX6UiyUy4OvOR5OiQGDknJbvyCY3ZMbxCQ=",
+      "receiver_private_key": "kP6PMvIDZDjn9MDpFX1ffXMLwEYY4d1WkIT2fTkZ0X4=",
+      "payload": "xXFH1cYOolNb1TKV5ac+JV8s6Ab5+jn6h4lFN2JNcQSRLsjm+SEA38FZbKJ8Ycbcp3R7BSiyrplsBeYfPKR4wXdCbQSyuwWukcVUMbMD+Ej1HG5ecZKXBpB+TbNMexfPnBbEtCrrJ8b1wndPUFrzZDGXsHooYgiW3KHBE7SCtuD0ZHaQKVJcPtgBdm0z8zy/vjhJeiscuQG6",
+      "plaintext": "eyJ2IjoxLCJ0eXBlIjoicmVxdWVzdCIsImlkIjoiNjkzMzVlMDUtZjRjMi00ODkyLTk2MmEtZTA1MWQ2MmE4NDg0IiwibWV0aG9kIjoic2Vzc2lvbnMubGlzdCIsInBhcmFtcyI6e319"
+    },
+    {
+      "from": "workstation-demo",
+      "to": "phone-demo",
+      "sender_public_key": "YIC75RAF6prMhjWAzlcxfUa+9jM1WNW/qX5GE0KYUAU=",
+      "receiver_private_key": "cJAzCxjXbEVEa32dGxXofX2oCrO2+M3MCHF2Tx12fFw=",
+      "payload": "L+BFGDB7muyX16VKjRgjk++PCkUV4YJzSqzGd7zp0mUSANdlCLh3rvTrBLVSvwTr2WRwZMRWrqqJVYKb/UaXIlOc+UnLw5uNiUFeA1kUsOdtDBEq0/SkXWQijWIzpIUQtrzIUdCz0yOnPpYfek/7PU8zcZaNGJvLdA9qZ1yInTRjNlq/zOS7a9Ckg9vMezfxKz6LPpOaNtWn1BTYq2+gSr1xzrXZGw0Tov4OJaREoH3B9/9B1BfcNXwnp5oqyKsoR59VNqlYIdhJ+AXPfm4jvqXb/rd/F38pnz/FBceRKz+stDMqh2qCFc2GGDsd4Wo3ptGnmA29VPFlrebzhkBqGvWL",
+      "plaintext": "eyJ2IjoxLCJ0eXBlIjoicmVzcG9uc2UiLCJpZCI6IjY5MzM1ZTA1LWY0YzItNDg5Mi05NjJhLWUwNTFkNjJhODQ4NCIsInJlc3VsdCI6eyJpdGVtcyI6W3sic2Vzc2lvbl9pZCI6ImRlbW8tc2Vzc2lvbiIsInRpdGxlIjoi6aqM5pS25Lya6K+dIiwic3RhdGUiOiJ3YWl0aW5nIiwidXBkYXRlZF9hdF9tcyI6MTc5NTAwMDAwMDAwMH1dLCJuZXh0X2N1cnNvciI6bnVsbH19"
+    }
+  ]
+}
