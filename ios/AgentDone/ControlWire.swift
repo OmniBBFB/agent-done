@@ -108,6 +108,39 @@ struct WireSession: Decodable {
     let title: String
     let state: String
     let updatedAtMs: Int64
+    let canSendMessage: Bool?
+}
+
+struct MessageDraft: Codable, Sendable {
+    static let maximumBytes = 16 * 1024
+
+    let sessionId: String
+    let idempotencyKey: String
+    let expiresAtMs: Int64
+    let text: String
+
+    static func validatedText(_ text: String) throws -> String {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw SessionClientError.invalidReply
+        }
+        guard text.utf8.count <= maximumBytes else { throw SessionClientError.messageTooLong }
+        return text
+    }
+}
+
+struct MessageStatusQuery: Encodable {
+    let sessionId: String
+    let idempotencyKey: String
+    let expiresAtMs: Int64
+}
+
+enum MessageDelivery: String, Decodable {
+    case accepted, notReceived = "not_received", expired, unknown
+}
+
+struct MessageOutcome: Decodable {
+    let sessionId: String
+    let status: MessageDelivery
 }
 
 struct WireHistory: Decodable {

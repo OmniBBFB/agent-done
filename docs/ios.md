@@ -2,6 +2,8 @@
 
 `ios/AgentDone.xcodeproj` 是 SwiftUI 原生工程，部署目标为 iOS 17。初次启动进入演示模式，可以试用待处理列表、分页历史、审批和回答。在「设置」可以重置演示数据或切换到远程工作站。
 
+「设置 → 主题」可切换终端、工作台和纪要。终端以提示符、等宽标题和命令区组织会话，工作台以卡片分组方便扫读，纪要用较宽的行距呈现长消息。主题会保存在本机，各自跟随 iOS 的明暗外观。比较主题时，可以用同一条待处理会话走完列表、命令预览和历史阅读。
+
 ## 构建与真机调试
 
 用 Xcode 打开 [AgentDone.xcodeproj](../ios/AgentDone.xcodeproj)，选择 `AgentDone` scheme。真机调试时，在 `Signing & Capabilities` 选择自己的开发团队，切换目标到已连接的 iPhone，然后运行。默认 Bundle ID 为 `dev.agentdone.ios`，调试构建可通过 `PRODUCT_BUNDLE_IDENTIFIER` 指定独立标识。
@@ -27,3 +29,5 @@ xcodebuild -project ios/AgentDone.xcodeproj -scheme AgentDone \
 提交意图和幂等键保存在钥匙串。只在收到通过端到端认证的工作站答复后显示提交结果。转发失败或结果未知时，客户端会先查询工作站，用户明确重试同一回复且工作站确认仍待处理时才沿用原幂等键发送。 [控制协议 v1](../protocol/control-v1.md)
 
 真实 Codex 会话需要实现控制协议的工作站端。仓库当前提供中转程序和互操作材料，工作站适配进度见 [远程中转开发说明](remote-relay.md)。
+
+支持继续会话的工作站会在会话详情显示「继续问 Codex」输入框，空闲时可以发送。演示模式可以进入「会话 → 更新开发文档」试用。实际发送需要工作站实现可选的继续会话扩展。 [继续会话扩展](../protocol/control-v1.md#继续会话扩展候选)

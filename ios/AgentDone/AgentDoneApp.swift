@@ -8,7 +8,6 @@ struct AgentDoneApp: App {
     var body: some Scene {
         WindowGroup {
             WorkspaceView(store: store)
-                .tint(.indigo)
                 .task(id: MonitorID(active: scenePhase == .active, generation: store.generation)) {
                     if scenePhase == .active {
                         await store.monitor()
@@ -123,7 +122,6 @@ final class SessionStore {
         guard generation == current else { return false }
         if let result {
             outcomes[interaction.id] = result
-            error = result.description
         }
         submitting = false
         await refresh()
@@ -146,6 +144,22 @@ final class SessionStore {
         }
         submitting = false
         await refresh()
+    }
+
+    func sendMessage(_ text: String, to session: AgentSession.ID) async throws -> MessageDelivery {
+        guard !refreshing, !submitting,
+              let target = sessions.first(where: { $0.id == session }), target.acceptsMessage,
+              workstations.contains(where: { $0.id == target.workstationID && $0.isOnline })
+        else { throw SessionClientError.unavailable }
+
+        let current = generation
+        submitting = true
+        defer { if generation == current { submitting = false } }
+        let result = try await client.sendMessage(text, to: session)
+        guard generation == current else { throw CancellationError() }
+        submitting = false
+        await refresh()
+        return result
     }
 
     func savePairing(_ value: Pairing) throws {

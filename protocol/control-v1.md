@@ -133,6 +133,28 @@ ChaCha20Poly1305 `0x0003`。CryptoKit 对应
 是谁处理时使用 `closed`。转发失败或断线后，先从配对工作站查询与刷新，
 避免自动重发可能已经送达的批准。
 
+## 继续会话扩展（候选）
+
+工作站可在 `sessions.list` 的条目中添加 `can_send_message: true`，表示该手机有权在会话空闲时发起新的 Codex 回合。字段缺失或为 `false` 时，客户端仍可查看历史和处理已有交互。
+
+| 方法 | 参数 |
+| --- | --- |
+| `messages.send` | `session_id`、`idempotency_key`、`expires_at_ms`、`text` |
+| `messages.status` | `session_id`、`idempotency_key`、`expires_at_ms` |
+
+两种方法返回 `result: {"session_id":"...", "status":"..."}`。`text` 是非空白的 UTF-8 文本，最多 16 KiB。手机生成幂等 UUID 和当前时间后两分钟的有效期，重试时沿用原参数。
+
+工作站在原会话中发起新回合。提交前须核对发送设备仍有权限、会话空闲、原连接可用、有效期未过期且符合允许的时钟偏差。桌面输入与手机输入争用时只允许一次回合启动，工作站不排队，也不代替用户批准后续工具操作。发送前须持久登记发送设备、会话、幂等键和原内容摘要，重启后继续识别同一意图。相同键与参数返回原状态，内容或有效期不同则返回 `conflict`。
+
+| 状态 | 含义 |
+| --- | --- |
+| `accepted` | 工作站已确认 Codex 接受了该新回合 |
+| `not_received` | 工作站确认该意图未提交且仍在有效期内，用户可明确重试 |
+| `expired` | 工作站能确认该意图未提交且已过期，用户可以发起新意图 |
+| `unknown` | 工作站无法确认是否提交，手机保留草稿和幂等键并查询结果 |
+
+工作站返回 `invalid_request`、`forbidden`、`not_found`、`unavailable` 或 `busy` 时，须能确认该意图没有被交给 Codex。若提交途中断线且无法确认，应返回 `unknown`。工作站在新消息或后续输出可通过 `history.page` 读取时更新会话 `updated_at_ms`，并发送经过认证的 `state.changed`，供前台客户端刷新。
+
 ## 联调材料
 
 - [明文消息样例](fixtures/control-v1.json)

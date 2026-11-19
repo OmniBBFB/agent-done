@@ -38,6 +38,15 @@ struct AgentSession: Identifiable {
     var updatedAt: Date? = nil
     var status: SessionStatus
     var interactions: [Interaction]
+    var canSendMessage = false
+
+    var acceptsMessage: Bool {
+        guard canSendMessage && interactions.isEmpty else { return false }
+        switch status {
+        case .idle, .completed, .failed: return true
+        default: return false
+        }
+    }
 }
 
 struct SessionQuestion: Identifiable, Decodable {
@@ -102,11 +111,12 @@ protocol SessionClient: Sendable {
     func snapshot() async throws -> SessionSnapshot
     func history(for session: AgentSession.ID, cursor: String?) async throws -> HistoryPage
     func submit(_ reply: InteractionReply, session: AgentSession.ID, interaction: Interaction) async throws -> InteractionState
+    func sendMessage(_ text: String, to session: AgentSession.ID) async throws -> MessageDelivery
 }
 
 enum SessionClientError: LocalizedError {
     case unavailable, resolved, invalidReply
-    case uncertain
+    case uncertain, messageTooLong, previousMessageUnconfirmed
 
     var errorDescription: String? {
         switch self {
@@ -114,6 +124,8 @@ enum SessionClientError: LocalizedError {
         case .resolved: "这项请求已经处理。"
         case .invalidReply: "请检查回复内容。"
         case .uncertain: "结果尚未确认。再次提交同一回复前，会先向工作站查询状态。"
+        case .messageTooLong: "消息超过 16 KiB，请缩短后再发送。"
+        case .previousMessageUnconfirmed: "上一条消息的发送结果未确认。请先查询其状态。"
         }
     }
 }
@@ -137,7 +149,7 @@ actor DemoSessionClient: SessionClient {
                                         options: ["待处理请求", "最近会话"], allowsText: true)
                      ]))]),
         AgentSession(id: "docs", workstationID: "studio", title: "更新开发文档",
-                     directory: "~/dev/agent-done", status: .completed, interactions: []),
+                     directory: "~/dev/agent-done", status: .completed, interactions: [], canSendMessage: true),
         AgentSession(id: "archive", workstationID: "lab", title: "核对归档记录",
                      directory: "~/dev/archive", status: .completed, interactions: []),
     ]
@@ -160,6 +172,20 @@ actor DemoSessionClient: SessionClient {
 
     func snapshot() -> SessionSnapshot {
         SessionSnapshot(workstations: workstations, sessions: sessions)
+    }
+
+    func sendMessage(_ text: String, to session: AgentSession.ID) throws -> MessageDelivery {
+        guard let index = sessions.firstIndex(where: { $0.id == session && $0.acceptsMessage }) else {
+            throw SessionClientError.unavailable
+        }
+        let text = try MessageDraft.validatedText(text)
+        let exchange = [
+            HistoryEntry(id: UUID().uuidString, author: "Codex", text: "已收到演示消息。这里可以继续输入下一条。"),
+            HistoryEntry(id: UUID().uuidString, author: "你", text: text),
+        ]
+        histories[session, default: []].insert(contentsOf: exchange, at: 0)
+        sessions[index].updatedAt = .now
+        return .accepted
     }
 
     func history(for session: AgentSession.ID, cursor: String?) throws -> HistoryPage {

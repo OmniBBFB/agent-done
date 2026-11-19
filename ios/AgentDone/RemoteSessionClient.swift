@@ -5,7 +5,10 @@ actor RemoteSessionClient: SessionClient {
     let connection: RelayConnection
     private let workstationID: String
     private let intentStorage: String
+    private let messageStorage: String
     private var intents: [String: ReplyQuery]
+    private var messageDrafts: [String: MessageDraft]
+    private var activeMessageOperations = Set<String>()
     private var confirmed: [String: InteractionState] = [:]
     private var cachedSessions: [AgentSession] = []
 
@@ -15,7 +18,9 @@ actor RemoteSessionClient: SessionClient {
         let identity = "\(pairing.phoneID)\n\(pairing.workstationID)\n\(pairing.workstationKey)"
         let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
         intentStorage = PairingVault.intents + "." + digest
+        messageStorage = "messages." + digest
         intents = try PairingVault.load([String: ReplyQuery].self, name: intentStorage) ?? [:]
+        messageDrafts = try PairingVault.load([String: MessageDraft].self, name: messageStorage) ?? [:]
     }
 
     func snapshot() async throws -> SessionSnapshot {
@@ -42,7 +47,8 @@ actor RemoteSessionClient: SessionClient {
             }
             return AgentSession(id: session.sessionId, workstationID: workstationID, title: session.title,
                                 updatedAt: Date(timeIntervalSince1970: Double(session.updatedAtMs) / 1000),
-                                status: Self.status(session.state, cards: cards), interactions: cards)
+                                status: Self.status(session.state, cards: cards), interactions: cards,
+                                canSendMessage: session.canSendMessage == true)
         }
         return result(online: true)
     }
@@ -56,6 +62,72 @@ actor RemoteSessionClient: SessionClient {
                          text: $0.text, truncated: $0.truncated)
         }
         return HistoryPage(entries: entries, nextCursor: page.nextCursor)
+    }
+
+    func pendingMessage(for session: String) -> String? { messageDrafts[session]?.text }
+
+    func sendMessage(_ text: String, to session: String) async throws -> MessageDelivery {
+        guard activeMessageOperations.insert(session).inserted else { throw SessionClientError.unavailable }
+        defer { activeMessageOperations.remove(session) }
+
+        let text = try MessageDraft.validatedText(text)
+        let draft: MessageDraft
+        if let previous = messageDrafts[session] {
+            guard previous.text == text else { throw SessionClientError.previousMessageUnconfirmed }
+            let current = try await messageStatus(previous)
+            guard current == .notReceived else { return current }
+            guard cachedSessions.contains(where: { $0.id == session && $0.acceptsMessage }) else {
+                throw SessionClientError.unavailable
+            }
+            draft = previous
+        } else {
+            guard cachedSessions.contains(where: { $0.id == session && $0.acceptsMessage }) else {
+                throw SessionClientError.unavailable
+            }
+            draft = MessageDraft(sessionId: session, idempotencyKey: UUID().uuidString,
+                                 expiresAtMs: Int64((Date.now.timeIntervalSince1970 + 120) * 1000), text: text)
+            try saveMessageDraft(draft, for: session)
+        }
+
+        do {
+            let outcome = try await connection.request("messages.send", params: draft, as: MessageOutcome.self)
+            return try resolveMessage(outcome, for: session)
+        } catch WireError.control(let code) {
+            if ["invalid_request", "forbidden", "not_found", "unavailable", "busy"].contains(code) {
+                try saveMessageDraft(nil, for: session)
+            }
+            throw WireError.control(code)
+        } catch {
+            // A transport failure can happen after the workstation accepts the message.
+            return (try? await messageStatus(draft)) ?? .unknown
+        }
+    }
+
+    func checkMessageStatus(for session: String) async throws -> MessageDelivery? {
+        guard let draft = messageDrafts[session] else { return nil }
+        guard activeMessageOperations.insert(session).inserted else { throw SessionClientError.unavailable }
+        defer { activeMessageOperations.remove(session) }
+        return try await messageStatus(draft)
+    }
+
+    private func messageStatus(_ draft: MessageDraft) async throws -> MessageDelivery {
+        let query = MessageStatusQuery(sessionId: draft.sessionId, idempotencyKey: draft.idempotencyKey,
+                                       expiresAtMs: draft.expiresAtMs)
+        let result = try await connection.request("messages.status", params: query, as: MessageOutcome.self)
+        return try resolveMessage(result, for: draft.sessionId)
+    }
+
+    private func resolveMessage(_ outcome: MessageOutcome, for session: String) throws -> MessageDelivery {
+        guard outcome.sessionId == session else { throw WireError.invalidMessage }
+        if outcome.status == .accepted || outcome.status == .expired { try saveMessageDraft(nil, for: session) }
+        return outcome.status
+    }
+
+    private func saveMessageDraft(_ draft: MessageDraft?, for session: String) throws {
+        var updated = messageDrafts
+        updated[session] = draft
+        try PairingVault.save(updated, name: messageStorage)
+        messageDrafts = updated
     }
 
     func submit(_ reply: InteractionReply, session: AgentSession.ID, interaction: Interaction) async throws -> InteractionState {
