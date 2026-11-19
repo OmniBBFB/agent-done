@@ -14,7 +14,7 @@ import sys
 import time
 
 from acceptance_run import record, wait
-from agent_done.ipc import request
+from acceptance_support import request
 
 
 def main(artifacts):

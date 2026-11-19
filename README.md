@@ -5,12 +5,12 @@
 面向已有终端与桌面工作流、并行运行多个 CLI agent 的用户，优先提供键盘驱动的待介入会话导航，通知与计数帮助用户决定何时切回。
 当前版本针对本机 Linux + Codex CLI + niri + Waybar：状态栏显示待查看会话个数和终端位置，按 **Mod+N** 跳到最早待查看的会话，实际聚焦后清除提醒，再按进入下一个。
 
-Linux/niri 主线提供 Go 实现。仓库同时保留 Python 实现，供迁移对照及实验性的 macOS + yabai / 原生 Accessibility 后端使用。macOS 使用方法见 [macOS 接入说明](docs/macos.md)。架构、兼容边界和验收方法见 [Go 版开发说明](docs/go.md)。
+Linux/niri 的安装与运行使用 Go。架构、迁移和验收方法见 [开发说明](docs/go.md)。
 
 当前已验证 Kitty 和 Alacritty 的独立 OS 窗口。生产代码通过进程父链与 niri 窗口 PID 关联，
 不要求终端名为 Alacritty。每个 agent 使用独立 OS 窗口；不要把不同 agent 放进同一 Kitty
 窗口的标签页或分屏，当前提醒和跳转按 niri 窗口处理，不能区分这些内部区域。
-Linux 的 niri/Waybar 安装集成不适用于 macOS；macOS 首期使用手动服务和快捷键。
+当前 Go 版支持 Linux/niri。macOS 原生集成留待后续。
 
 ## 日常使用
 
@@ -58,9 +58,7 @@ niri 保存配置后自动加载，无需重启桌面。绑定与加载机制见
 
 ## 安装与启用
 
-本节是 Linux/niri/Waybar 的安装步骤。macOS 请直接使用 [macOS 安装、使用与实机验收说明](docs/macos.md)，不执行下面的 `install` 和 systemd 命令。
-
-需要 Go 1.25+、C 编译器，以及已经可用的 Codex、niri 和 Waybar。首次切换 Go 版时先结束受跟踪的 Python 版会话，再在项目目录运行：
+需要 Go 1.25+、C 编译器，以及已经可用的 Codex、niri 和 Waybar。在项目目录运行：
 
 ```sh
 CGO_ENABLED=1 go build -o dist/agent-done ./cmd/agent-done
@@ -118,6 +116,6 @@ hook 仅发送事件类型、会话 ID、回合 ID 和来源，短超时、失�
 go test ./...
 ```
 
-Go 测试覆盖会话状态、请求归属、配置合并和旧 SQLite 数据。保留的 Python 测试和真实桌面验收方法见 [Go 版开发说明](docs/go.md)。
+Go 测试覆盖会话状态、请求归属、配置合并和旧 SQLite 数据。真实桌面验收方法见 [Go 版开发说明](docs/go.md)。
 
 退出时 Codex 原生提示可能包含临时连接地址，恢复时请使用 `agent-done codex resume <ID>`；恢复沿用会话已有权限设置。

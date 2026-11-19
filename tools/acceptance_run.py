@@ -9,16 +9,14 @@ import argparse
 import json
 import os
 from pathlib import Path
+import select
 import shlex
 import subprocess
 import time
 
 from acceptance import BIN, status, submit, input_data, transcript, write_json, start
 from _probe_rpc import ProbeRPC
-from agent_done.codex import hook_command
-from agent_done.desktop import niri_query, niri_socket
-from agent_done.ipc import request
-from agent_done.waybar import render
+from acceptance_support import niri_socket, request
 
 
 def wait(predicate, timeout=120):
@@ -59,18 +57,9 @@ def trust(artifacts):
         rpc.close()
     hooks = [h for entry in data["data"] for h in entry["hooks"]]
     pending = [h for h in hooks if h["trustStatus"] in ("untrusted", "modified")]
-    expected = hook_command()
-    if os.environ.get("AGENT_DONE_BINARY"):
-        expected = shlex.join([str(BIN), "hook"])
-
-    def ours(hook):
-        argv = shlex.split(hook.get("command", ""))
-        if os.environ.get("AGENT_DONE_BINARY"):
-            return argv == [str(BIN), "hook"]
-        return (len(argv) == 4 and argv[1:] == ["-m", "agent_done", "hook"] and
-                Path(argv[0]).parent == Path(hook_command().split()[0]).parent and
-                Path(argv[0]).name in ("python", "python3"))
-    if any(not ours(h) for h in pending):
+    command = [str(BIN), "hook"]
+    expected = shlex.join(command)
+    if any(shlex.split(h.get("command", "")) != command for h in pending):
         raise RuntimeError("unrelated untrusted hook; inspect individually instead of trusting all")
     if pending:
         submit(artifacts, "/hooks")
@@ -90,8 +79,15 @@ def complete(artifacts, original):
                   if (s := session(artifacts)) else None)
     assert "AGENT_DONE_PRODUCTION_OK" in transcript(artifacts)
     snapshot = request({"op": "status"})["snapshot"]
-    output = render(snapshot)
-    assert output["text"] == "Codex " + str(snapshot["pending_count"])
+    with subprocess.Popen([BIN, "waybar"], stdout=subprocess.PIPE) as waybar:
+        try:
+            if not select.select([waybar.stdout], [], [], 5)[0]:
+                raise TimeoutError("Waybar did not receive a snapshot")
+            output = json.loads(waybar.stdout.readline())
+            assert output["text"] == "Codex " + str(snapshot["pending_count"])
+        finally:
+            waybar.terminate()
+            waybar.wait(timeout=5)
     assert result["views"][0]["position"]["row"] is not None
     record(artifacts, "completion_unread", {"session": result, "waybar": output,
                                            "subscribers": status(artifacts)["subscribers"]})
@@ -228,7 +224,8 @@ if __name__ == "__main__":
     parser.add_argument("--original", type=int, default=202)
     args = parser.parse_args()
     os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
-    os.environ.setdefault("NIRI_SOCKET", niri_socket())
+    if socket_path := niri_socket():
+        os.environ.setdefault("NIRI_SOCKET", socket_path)
     if args.step == "complete":
         trust(args.artifacts)
         complete(args.artifacts, args.original)

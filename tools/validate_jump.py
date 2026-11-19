@@ -15,11 +15,10 @@ import sys
 import tempfile
 import time
 
-from agent_done.desktop import niri_query, niri_socket, start_ticks
-from agent_done.ipc import request
+from acceptance_support import binary, niri_query, niri_socket, request, start_ticks
 from terminal_launcher import desktop_environment, terminal_command
 
-BIN = str(Path(os.environ.get("AGENT_DONE_BINARY", Path.home() / ".local/bin/agent-done")).resolve())
+BIN = str(binary())
 
 
 def wait(predicate, timeout=8):

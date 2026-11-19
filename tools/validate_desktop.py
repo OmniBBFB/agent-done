@@ -2,7 +2,7 @@
 """Real-window desktop acceptance with synthetic attention, no model requests.
 
 Creates three temporary Kitty/Alacritty windows and an isolated service from the
-current interpreter. This exercises source binding, focus readback and request
+selected Go executable. This exercises source binding, focus readback and request
 viewing, not real agent events, physical shortcuts or cross-Space behavior.
 """
 
@@ -15,9 +15,7 @@ import sys
 import tempfile
 import time
 
-from agent_done.desktop_niri import niri_socket
-from agent_done.ipc import request
-from agent_done.process import same_process
+from acceptance_support import binary as installed_binary, niri_socket, request, same_process
 from terminal_launcher import desktop_environment, terminal_command
 
 
@@ -46,22 +44,21 @@ def run(backend, terminal, output, binary=None):
     processes, identities = [], []
     service = None
     original = None
-    agent_done = [str(binary.resolve())] if binary else [sys.executable, "-m", "agent_done"]
+    agent_done = str(binary.resolve() if binary else installed_binary())
     report = {"passed": False, "backend": backend, "terminal": terminal,
               "attention_events": "synthetic approval/question", "physical_shortcut": "not tested",
               "cross_workspace": "not tested", "checks": []}
     report_path = output or Path(__file__).resolve().parent.parent / "outputs" / f"desktop-{backend}" / "result.json"
-    if backend == "niri":
-        path = niri_socket()
-        if not path:
-            raise RuntimeError("没有找到真实 niri socket")
-        os.environ["NIRI_SOCKET"] = path
+    path = niri_socket()
+    if not path:
+        raise RuntimeError("没有找到真实 niri socket")
+    os.environ["NIRI_SOCKET"] = path
     with tempfile.TemporaryDirectory(prefix="ad-", dir="/tmp") as directory:
         # Keep the real graphical runtime; isolate only agent-done's own paths.
         os.environ.update(AGENT_DONE_DESKTOP=backend, AGENT_DONE_STATE_DIR=directory + "/state",
                           AGENT_DONE_RUNTIME_DIR=directory + "/runtime")
         try:
-            service = subprocess.Popen([*agent_done, "serve"],
+            service = subprocess.Popen([agent_done, "serve"],
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             wait(lambda: (Path(directory) / "runtime/control.sock").exists())
             desktop = request({"op": "desktop_status"}, timeout=15)["desktop"]
@@ -69,7 +66,7 @@ def run(backend, terminal, output, binary=None):
             for index in range(3):
                 identity_path = Path(directory) / f"window-{index}.json"
                 command = [sys.executable, Path(__file__).with_name("terminal_identity_probe.py"), identity_path]
-                env = desktop_environment() if sys.platform.startswith("linux") else dict(os.environ)
+                env = desktop_environment()
                 process = subprocess.Popen(terminal_command(terminal, "agent-done-acceptance", "agent-done acceptance", command),
                                            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 processes.append(process)
@@ -95,7 +92,7 @@ def run(backend, terminal, output, binary=None):
             assert status()["pending_count"] == 2
             report["checks"].append("distinct source windows and pending_count=2")
             for index, remaining in ((0, 1), (1, 0)):
-                result = subprocess.run([*agent_done, "jump"],
+                result = subprocess.run([agent_done, "jump"],
                                         capture_output=True, text=True, check=True, timeout=20)
                 report.setdefault("jumps", []).append({"target": index, "stdout": result.stdout,
                                                         "stderr": result.stderr, "snapshot": status()})
@@ -107,7 +104,7 @@ def run(backend, terminal, output, binary=None):
                 assert session["id"] in result.stdout
                 report["checks"].append(f"observed target {index}, pending={remaining}, request still waiting")
             previous = status()["focused_window"]
-            result = subprocess.run([*agent_done, "jump"],
+            result = subprocess.run([agent_done, "jump"],
                                     capture_output=True, text=True, check=True, timeout=20)
             assert "没有可跳转" in result.stdout
             assert status()["focused_window"] == previous
@@ -162,7 +159,7 @@ def run(backend, terminal, output, binary=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", required=True, choices=("niri", "yabai", "macos"))
+    parser.add_argument("--backend", default="niri", choices=("niri",))
     parser.add_argument("--terminal", default="kitty", choices=("kitty", "alacritty"))
     parser.add_argument("--output", type=Path)
     parser.add_argument("--binary", type=Path, help="Agent Done binary to validate")

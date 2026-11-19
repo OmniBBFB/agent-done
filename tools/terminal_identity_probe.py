@@ -6,8 +6,7 @@ from pathlib import Path
 import sys
 import time
 
-from agent_done.process import start_ticks
-from agent_done.ipc import request
+from acceptance_support import request, start_ticks
 
 
 try:

@@ -13,15 +13,13 @@ from pathlib import Path
 import pty
 import subprocess
 import sys
-import time
 
-from normal_interaction_probe import append, input_data, submit, transcript, write_json
+from acceptance_support import binary, request
+from normal_interaction_probe import input_data, submit, transcript, write_json
 from pty_bridge import bridge_terminal
 from terminal_launcher import desktop_environment, terminal_command
 
-ROOT = Path(__file__).resolve().parent.parent
-BIN = Path(os.environ.get("AGENT_DONE_BINARY", Path.home() / ".local/bin/agent-done")).resolve()
-PYTHON = ROOT / ".venv/bin/python"
+BIN = binary()
 
 
 def terminal(artifacts, resume=None):
@@ -45,7 +43,7 @@ def start(artifacts, resume=None, terminal_name='kitty'):
     artifacts = artifacts.resolve()
     artifacts.mkdir(parents=True, mode=0o700)
     args = terminal_command(terminal_name, 'agent-done-acceptance', 'agent-done acceptance',
-                            [PYTHON, Path(__file__).resolve(), 'terminal', artifacts])
+                            [sys.executable, Path(__file__).resolve(), 'terminal', artifacts])
     if resume:
         args += ["--resume", resume]
     env = desktop_environment()
@@ -56,7 +54,6 @@ def start(artifacts, resume=None, terminal_name='kitty'):
 
 
 def status(artifacts):
-    from agent_done.ipc import request
     snapshot = request({"op": "diagnostics"})
     owner = json.loads((artifacts / "launcher.json").read_text())["owner_pid"]
     sessions = [s for s in snapshot["snapshot"]["sessions"]
