@@ -20,7 +20,7 @@ from pty_bridge import bridge_terminal
 from terminal_launcher import desktop_environment, terminal_command
 
 ROOT = Path(__file__).resolve().parent.parent
-BIN = Path.home() / ".local/bin/agent-done"
+BIN = Path(os.environ.get("AGENT_DONE_BINARY", Path.home() / ".local/bin/agent-done")).resolve()
 PYTHON = ROOT / ".venv/bin/python"
 
 

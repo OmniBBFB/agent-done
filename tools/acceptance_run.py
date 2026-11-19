@@ -13,7 +13,7 @@ import shlex
 import subprocess
 import time
 
-from acceptance import status, submit, input_data, transcript, write_json, start
+from acceptance import BIN, status, submit, input_data, transcript, write_json, start
 from _probe_rpc import ProbeRPC
 from agent_done.codex import hook_command
 from agent_done.desktop import niri_query, niri_socket
@@ -59,8 +59,14 @@ def trust(artifacts):
         rpc.close()
     hooks = [h for entry in data["data"] for h in entry["hooks"]]
     pending = [h for h in hooks if h["trustStatus"] in ("untrusted", "modified")]
+    expected = hook_command()
+    if os.environ.get("AGENT_DONE_BINARY"):
+        expected = shlex.join([str(BIN), "hook"])
+
     def ours(hook):
         argv = shlex.split(hook.get("command", ""))
+        if os.environ.get("AGENT_DONE_BINARY"):
+            return argv == [str(BIN), "hook"]
         return (len(argv) == 4 and argv[1:] == ["-m", "agent_done", "hook"] and
                 Path(argv[0]).parent == Path(hook_command().split()[0]).parent and
                 Path(argv[0]).name in ("python", "python3"))
@@ -72,7 +78,7 @@ def trust(artifacts):
         input_data(artifacts, "t")
         time.sleep(1)
         input_data(artifacts, "\x1b")
-    record(artifacts, "normal_hook_review", {"command": hook_command(), "reviewed": len(pending)})
+    record(artifacts, "normal_hook_review", {"command": expected, "reviewed": len(pending)})
 
 
 def complete(artifacts, original):

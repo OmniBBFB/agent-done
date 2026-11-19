@@ -19,7 +19,7 @@ from agent_done.desktop import niri_query, niri_socket, start_ticks
 from agent_done.ipc import request
 from terminal_launcher import desktop_environment, terminal_command
 
-BIN = str(Path.home() / ".local/bin/agent-done")
+BIN = str(Path(os.environ.get("AGENT_DONE_BINARY", Path.home() / ".local/bin/agent-done")).resolve())
 
 
 def wait(predicate, timeout=8):

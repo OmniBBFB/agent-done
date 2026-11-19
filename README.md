@@ -5,7 +5,7 @@
 面向已有终端与桌面工作流、并行运行多个 CLI agent 的用户，优先提供键盘驱动的待介入会话导航，通知与计数帮助用户决定何时切回。
 当前版本针对本机 Linux + Codex CLI + niri + Waybar：状态栏显示待查看会话个数和终端位置，按 **Mod+N** 跳到最早待查看的会话，实际聚焦后清除提醒，再按进入下一个。
 
-已接入实验性的 macOS + yabai / 原生 Accessibility 后端，并提供 macOS 菜单栏入口。yabai + Alacritty 已完成基础窗口导航和真实完成事件的首轮实测，AX 仍需完成辅助功能授权后的实机验收，使用方法见 [macOS 接入说明](docs/macos.md)。GNOME、Windows 与其他 agent 仍未接入。架构和开发验证方法见[开发说明](docs/development.md)。
+Linux/niri 主线提供 Go 实现。仓库同时保留 Python 实现，供迁移对照及实验性的 macOS + yabai / 原生 Accessibility 后端使用。macOS 使用方法见 [macOS 接入说明](docs/macos.md)。架构、兼容边界和验收方法见 [Go 版开发说明](docs/go.md)。
 
 当前已验证 Kitty 和 Alacritty 的独立 OS 窗口。生产代码通过进程父链与 niri 窗口 PID 关联，
 不要求终端名为 Alacritty。每个 agent 使用独立 OS 窗口；不要把不同 agent 放进同一 Kitty
@@ -24,7 +24,7 @@ agent-done doctor
 
 从 `agent-done codex` 启动的交互会话才会纳入跟踪。已经运行的普通 `codex` 窗口需要退出后用该入口启动或恢复。Codex 的交互参数照常传递，例如 `agent-done codex -C ~/app/my-project`。
 
-首次启动时用 Codex 的 `/hooks` 界面审阅并信任 agent-done 的命令 hook：`<项目虚拟环境>/bin/python3 -m agent_done hook`。命令固定，恢复会话不需要每次重新信任。审阅时保留你已有 hook 的信任判断。
+首次启动时用 Codex 的 `/hooks` 界面审阅 agent-done 的命令 hook。Go 版使用 `<项目目录>/dist/agent-done hook`。从 Python 切换后命令路径会变化，需要重新审阅这条 hook。以后从同一安装路径启动或恢复会话，可以沿用此信任判断。
 
 Waybar 显示 `Codex 0`、`Codex 1` 等。悬浮查看会话名称、提醒原因和 `显示器 · 工作区 · 第几行第几列`；浮动窗口单独标记。位置跟随 niri 的实时布局更新。
 
@@ -60,13 +60,14 @@ niri 保存配置后自动加载，无需重启桌面。绑定与加载机制见
 
 本节是 Linux/niri/Waybar 的安装步骤。macOS 请直接使用 [macOS 安装、使用与实机验收说明](docs/macos.md)，不执行下面的 `install` 和 systemd 命令。
 
-需要 Python 3.11+、uv，以及已经可用的 Codex、niri 和 Waybar。在项目目录运行：
+需要 Go 1.25+、C 编译器，以及已经可用的 Codex、niri 和 Waybar。首次切换 Go 版时先结束受跟踪的 Python 版会话，再在项目目录运行：
 
 ```sh
-uv sync
-uv run agent-done install
+CGO_ENABLED=1 go build -o dist/agent-done ./cmd/agent-done
+./dist/agent-done install
 systemctl --user daemon-reload
-systemctl --user enable --now agent-done.service
+systemctl --user enable agent-done.service
+systemctl --user restart agent-done.service
 pkill -USR2 -x waybar
 ```
 
@@ -103,7 +104,7 @@ pkill -USR2 -x waybar
 hook 仅发送事件类型、会话 ID、回合 ID 和来源，短超时、失败放行。状态服务不可用时，Codex 消息继续转发；启动时提醒服务不可用则继续启动普通 Codex，并显示提示。跟踪服务恢复后需要重新启动或恢复该会话来登记。
 
 - 状态：`~/.local/state/agent-done/state.sqlite3`
-- 轮转诊断日志：`~/.local/state/agent-done/agent-done.log`
+- Go 服务诊断日志：systemd 用户日志，手动后台启动时写入状态目录中的 `service.log`
 - 本机控制 socket：`$XDG_RUNTIME_DIR/agent-done/control.sock`
 - 目录权限 0700，socket 0600；不记录原始协议流、用户问题、工具参数或助手正文。会话标题和工作目录用于状态栏显示，会保存在状态库。
 
@@ -114,9 +115,9 @@ hook 仅发送事件类型、会话 ID、回合 ID 和来源，短超时、失�
 工作区是一张虚拟桌面，可类比行列之外的 z 维度。niri 每个显示器的工作区上下排列；工作区内列从左到右、同列的行从上到下。工作区序号和行列会变化，内部关联使用窗口 ID。
 
 ```sh
-uv run python -m unittest discover -s tests -v
+go test ./...
 ```
 
-测试覆盖会话去重、并发状态、恢复、焦点清除、隐藏会话、请求生命周期、内部线程过滤、配置合并、安装及 Waybar 输出。开发环境与桌面验收方法见[开发说明](docs/development.md)。
+Go 测试覆盖会话状态、请求归属、配置合并和旧 SQLite 数据。保留的 Python 测试和真实桌面验收方法见 [Go 版开发说明](docs/go.md)。
 
 退出时 Codex 原生提示可能包含临时连接地址，恢复时请使用 `agent-done codex resume <ID>`；恢复沿用会话已有权限设置。

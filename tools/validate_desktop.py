@@ -42,10 +42,11 @@ def focus(identity):
         raise RuntimeError("验收窗口已失效")
 
 
-def run(backend, terminal, output):
+def run(backend, terminal, output, binary=None):
     processes, identities = [], []
     service = None
     original = None
+    agent_done = [str(binary.resolve())] if binary else [sys.executable, "-m", "agent_done"]
     report = {"passed": False, "backend": backend, "terminal": terminal,
               "attention_events": "synthetic approval/question", "physical_shortcut": "not tested",
               "cross_workspace": "not tested", "checks": []}
@@ -60,7 +61,7 @@ def run(backend, terminal, output):
         os.environ.update(AGENT_DONE_DESKTOP=backend, AGENT_DONE_STATE_DIR=directory + "/state",
                           AGENT_DONE_RUNTIME_DIR=directory + "/runtime")
         try:
-            service = subprocess.Popen([sys.executable, "-m", "agent_done", "serve"],
+            service = subprocess.Popen([*agent_done, "serve"],
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             wait(lambda: (Path(directory) / "runtime/control.sock").exists())
             desktop = request({"op": "desktop_status"}, timeout=15)["desktop"]
@@ -94,7 +95,7 @@ def run(backend, terminal, output):
             assert status()["pending_count"] == 2
             report["checks"].append("distinct source windows and pending_count=2")
             for index, remaining in ((0, 1), (1, 0)):
-                result = subprocess.run([sys.executable, "-m", "agent_done", "jump"],
+                result = subprocess.run([*agent_done, "jump"],
                                         capture_output=True, text=True, check=True, timeout=20)
                 report.setdefault("jumps", []).append({"target": index, "stdout": result.stdout,
                                                         "stderr": result.stderr, "snapshot": status()})
@@ -106,7 +107,7 @@ def run(backend, terminal, output):
                 assert session["id"] in result.stdout
                 report["checks"].append(f"observed target {index}, pending={remaining}, request still waiting")
             previous = status()["focused_window"]
-            result = subprocess.run([sys.executable, "-m", "agent_done", "jump"],
+            result = subprocess.run([*agent_done, "jump"],
                                     capture_output=True, text=True, check=True, timeout=20)
             assert "没有可跳转" in result.stdout
             assert status()["focused_window"] == previous
@@ -164,5 +165,6 @@ if __name__ == "__main__":
     parser.add_argument("--backend", required=True, choices=("niri", "yabai", "macos"))
     parser.add_argument("--terminal", default="kitty", choices=("kitty", "alacritty"))
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--binary", type=Path, help="Agent Done binary to validate")
     args = parser.parse_args()
-    run(args.backend, args.terminal, args.output)
+    run(args.backend, args.terminal, args.output, args.binary)

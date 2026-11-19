@@ -1,5 +1,7 @@
 # 开发说明
 
+本文描述保留的 Python 实现及其验收工具。Linux/niri 的 Go 实现和迁移验证见 [Go 版开发说明](go.md)。
+
 agent-done 在现有终端之外维护 CLI agent 的待查看状态，并通过桌面窗口管理器定位和聚焦会话。当前已验证本机 Codex CLI + niri + Waybar；macOS/yabai + Alacritty 已完成基础窗口导航及真实完成事件的首轮实测，原生 AX 接入仍待授权后的实机验证。每个 agent 使用独立 OS 窗口。
 
 安装和日常操作见 [README](../README.md)。本文介绍当前架构、开发入口和验证方法。

@@ -1,0 +1,14 @@
+
+/* agent-done:start */
+#custom-agent-done {
+    padding: 0 10px;
+    margin: 3px 2px;
+    border-radius: 6px;
+    color: #89b4fa;
+}
+#custom-agent-done.pending {
+    background: rgba(49, 50, 68, 0.9);
+    color: #f9e2af;
+}
+#custom-agent-done.disconnected { color: #f38ba8; }
+/* agent-done:end */
