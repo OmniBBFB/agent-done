@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+xcuserdata/
 
 # Local process documents and generated artifacts; see AGENTS.md.
 /outputs/
