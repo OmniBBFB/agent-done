@@ -1,123 +1,83 @@
 # agent-done
 
-保留现有终端，用一个全局快捷键，直达下一个需要你介入的 CLI agent 会话。
+**并行跑多个 Codex CLI 会话时，用一个快捷键切回下一个需要你查看的终端。**
 
-面向已有终端与桌面工作流、并行运行多个 CLI agent 的用户，优先提供键盘驱动的待介入会话导航，通知与计数帮助用户决定何时切回。
-当前版本针对本机 Linux + Codex CLI + niri + Waybar：状态栏显示待查看会话个数和终端位置，按 **Mod+N** 跳到最早待查看的会话，实际聚焦后清除提醒，再按进入下一个。
+agent-done 保留你已有的终端工作流。Codex 在后台完成一轮、执行失败、等待你授权或回答时，Waybar 会显示待查看会话的数量。将鼠标悬停在计数上可查看提醒原因和窗口位置。按下配置好的 **Mod+N**，就能依次跳到这些会话。
 
-Linux/niri 的安装与运行使用 Go。架构、迁移和验收方法见 [开发说明](docs/go.md)。
+## 安装与启用
 
-当前已验证 Kitty 和 Alacritty 的独立 OS 窗口。生产代码通过进程父链与 niri 窗口 PID 关联，
-不要求终端名为 Alacritty。每个 agent 使用独立 OS 窗口；不要把不同 agent 放进同一 Kitty
-窗口的标签页或分屏，当前提醒和跳转按 niri 窗口处理，不能区分这些内部区域。
-当前 Go 版支持 Linux/niri。macOS 原生集成留待后续。
+需要 Linux 上可用的 niri、Waybar、systemd 用户服务和 Codex CLI。源码构建需要 Go 1.25 或更新版本及 C 编译器。安装器在 `~/.config/waybar/config.jsonc` 或 `~/.config/waybar/config` 查找已有配置。请在 niri 桌面会话的终端中运行。
 
-iPhone 原生客户端的构建、真机调试和中转接入进度见 [iOS 开发说明](docs/ios.md)。
-
-## 日常使用
+### 1. 从源码安装
 
 ```sh
-agent-done codex
-agent-done codex resume <会话ID>
-agent-done status
-agent-done jump
-agent-done doctor
+git clone https://github.com/OmniBBFB/agent-done.git
+cd agent-done
+CGO_ENABLED=1 go build -o dist/agent-done ./cmd/agent-done
+./dist/agent-done install
+systemctl --user daemon-reload
+systemctl --user enable --now agent-done.service
+pkill -USR2 -x waybar
 ```
 
-从 `agent-done codex` 启动的交互会话才会纳入跟踪。已经运行的普通 `codex` 窗口需要退出后用该入口启动或恢复。Codex 的交互参数照常传递，例如 `agent-done codex -C ~/app/my-project`。
+重新构建后更新正在运行的服务时，执行 `systemctl --user restart agent-done.service`。
 
-首次启动时用 Codex 的 `/hooks` 界面审阅 agent-done 的命令 hook。Go 版使用 `<项目目录>/dist/agent-done hook`。从 Python 切换后命令路径会变化，需要重新审阅这条 hook。以后从同一安装路径启动或恢复会话，可以沿用此信任判断。
+安装器将 `~/.local/bin/agent-done` 链接到构建出的二进制，写入 systemd 用户服务，并更新 Waybar 的配置和样式。请保留仓库和 `dist/agent-done`。安装输出的 `backup` 字段指向原配置的备份目录，其中保留了 Waybar 配置原文。下文假设 `~/.local/bin` 已加入 `PATH`，也可以直接使用 `~/.local/bin/agent-done`。
 
-Waybar 显示 `Codex 0`、`Codex 1` 等。悬浮查看会话名称、提醒原因和 `显示器 · 工作区 · 第几行第几列`；浮动窗口单独标记。位置跟随 niri 的实时布局更新。
+### 2. 绑定跳转快捷键
 
-- 后台生成完成：计入待查看；失败也提醒，中断不计入完成。
-- 等待工具授权：真正交给用户确认时提醒，自动审批不增加待处理项。
-- 等待结构化回答或 MCP 补充输入：提醒待回答；普通文字追问由回合结束覆盖。
-- 切回对应终端：清除当前显示会话的提醒，工具授权和问题仍等待你操作。
-- 事件发生时终端已经聚焦：视作已查看，不增加计数。
-- 同一会话的多个事件、多处打开只计一次；同一终端内其他隐藏会话不会因终端聚焦而被清除。
-- 关闭终端或退出 Codex：清除失效绑定和计数。PID 同时核对进程启动标识，避免复用误认。
-
-手动清除提醒：`agent-done ack`，或 `agent-done ack --session <ID>`。这些操作只改变通知的查看状态。
-
-## 跳到待介入的会话
-
-建议将 **Mod+N**（通常为 Super/Win+N）绑定到跳转命令。按一次跳到最早需要介入、尚未查看的会话窗口；切回后原有焦点监听会清除该提醒，再按一次跳到下一个。没有可跳转的会话时不切换窗口。
-
-对应命令是 `agent-done jump`。与状态栏计数使用同一个 `pending` 条件，覆盖生成完成、等待授权、等待回答和执行失败，按会话最近一次状态更新时间从早到晚选择。已查看的会话、已关闭的窗口和失效进程会跳过，同一终端内的隐藏会话保留提醒，避免跳到其他会话后误清除。查看授权或问题仅清除提醒，请求仍等待你实际操作。
-
-实现通过会话映射取得窗口 ID，再调用 `niri msg action focus-window --id ...`。跨显示器、工作区由 niri 处理，窗口行列不参与排序。跳转命令不会主动清除提醒，实际聚焦后才由监听器确认已查看；跳转失败时提醒保留。
-
-在 `~/.config/niri/config.kdl` 的已有 `binds` 中加入下面的绑定，并将命令路径替换为自己的安装路径：
+将下面的配置加入 niri 配置文件的现有 `binds` 块，把示例路径换成 `~/.local/bin/agent-done` 对应的绝对路径。如已占用 **Mod+N**，可选择其他按键。 [niri 快捷键配置](https://niri-wm.github.io/niri/Configuration:-Key-Bindings.html)
 
 ```kdl
-Mod+N repeat=false hotkey-overlay-title="查看最早待介入的 Codex 会话" {
+Mod+N repeat=false hotkey-overlay-title="查看待介入的 Codex 会话" {
     spawn "/home/<user>/.local/bin/agent-done" "jump";
 }
 ```
 
-niri 保存配置后自动加载，无需重启桌面。绑定与加载机制见 [niri 官方文档](https://niri-wm.github.io/niri/Configuration:-Key-Bindings.html)和[配置说明](https://niri-wm.github.io/niri/Configuration:-Introduction.html)。
-
-## 安装与启用
-
-需要 Go 1.25+、C 编译器，以及已经可用的 Codex、niri 和 Waybar。在项目目录运行：
+### 3. 启动 Codex 并确认提醒
 
 ```sh
-CGO_ENABLED=1 go build -o dist/agent-done ./cmd/agent-done
-./dist/agent-done install
-systemctl --user daemon-reload
-systemctl --user enable agent-done.service
-systemctl --user restart agent-done.service
-pkill -USR2 -x waybar
+agent-done doctor
+agent-done codex
 ```
 
-确保 `~/.local/bin` 在 PATH 中；也可直接运行 `~/.local/bin/agent-done codex`。
+在 `doctor` 的输出中确认 `service_available` 和 `niri_connected` 均为 `true`。初次使用时，在 Codex 的 `/hooks` 界面审阅指向本项目 `dist/agent-done hook` 的命令。启动一个回合，在它结束前切到另一个窗口。Waybar 计数应增加一项。按 **Mod+N** 切回，确认该会话的提醒消失。也可以执行 `agent-done jump` 直接验证跳转。
 
-安装器创建用户命令和 systemd 用户服务，在现有 Waybar 配置的 `modules-right` 加入 `custom/agent-done`，并添加样式。原有配置备份在 `~/.local/state/agent-done/backups/`。重复安装不会重复添加模块。Waybar JSONC 注释会在写回时规整，原文在备份中保留。安装器写配置，服务启用和 Waybar 重载由上述命令完成。
+## 日常使用
 
-服务随图形会话启动，状态栏采用持续 JSON 输出：
+| 操作 | 命令 |
+| --- | --- |
+| 启动 Codex 并指定项目目录 | `agent-done codex -C ~/app/my-project` |
+| 恢复已有会话 | `agent-done codex resume <会话 ID>` |
+| 查看会话状态 | `agent-done status` |
+| 跳到最早待查看的会话 | `agent-done jump` |
+| 手动清除提醒 | `agent-done ack` 或 `agent-done ack --session <会话 ID>` |
+| 检查服务及 niri 连接 | `agent-done doctor` |
 
-```json
-"custom/agent-done": {
-  "exec": "~/.local/bin/agent-done waybar",
-  "return-type": "json",
-  "restart-interval": 2,
-  "tooltip": true
-}
-```
+通过 `agent-done codex` 启动或恢复的会话才会登记。已有的普通 Codex 会话可以先退出，再用上表命令恢复。已聚焦的会话收到事件时视为已查看。跳转成功后，实际聚焦窗口才会清除提醒。授权请求和问题仍需你在 Codex 中处理。
 
-停用：`systemctl --user disable --now agent-done.service`，从 Waybar 配置移除 `custom/agent-done` 和相应样式，再重载 Waybar。若安装后没有其他配置修改，也可从安装备份恢复原配置。
+如果启动时提示提醒不可用，Codex 会照常启动。可用 `journalctl --user -u agent-done.service` 查看服务日志，修复后用包装命令重新启动或恢复该会话。
 
-## 实现与数据
+停用时，从 Waybar 配置和样式中移除 `custom/agent-done` 及对应样式，重载 Waybar，然后执行 `systemctl --user disable --now agent-done.service`。之后可以用原来的 `codex` 命令启动会话。需要从备份恢复配置时，参阅[回退说明](docs/go.md#本机切换与回退)。
 
-```text
-真实 Codex TUI → 本地 Unix WebSocket 转发器 → Codex 原有共享 daemon
-                       ↓ 会话 ID + 真实 TUI PID + niri 窗口 ID
-稳定命令 hook → agent-done 用户服务 ← niri 窗口、布局、焦点事件
-                       ↓ SQLite 状态 / Waybar JSON 订阅
-```
+## 支持范围
 
-包装器从真实进程祖先识别终端窗口，从会话创建、恢复响应登记会话身份。转发器为用户会话补齐 hook 配置，并观察真正的回合完成、授权和提问请求。它不会改写用户的授权决定或回答。内部标题生成和子 agent 不作为独立待查看会话。
+- 桌面集成面向本机 Linux 和 niri，已验证 Kitty 与 Alacritty。每个会话请使用独立的终端窗口。跳转按 niri 窗口定位，同一窗口内的标签页和分屏共用窗口身份。
+- 启动器使用本机 Codex daemon，要求可识别的 niri 窗口。SSH 登录端的 Codex 当前不会被跟踪，`--remote` 和 `--no-daemon` 也不适用于包装入口。
+- 仓库提供 iOS 17+ 的原生客户端和自托管中转。iPhone 可在演示模式试用界面。配对在线工作站后，可以查看受跟踪的会话和文本历史。获得控制权限的手机还可处理支持的审批与提问，并在支持继续会话的工作站上给空闲会话发送补充指令。 [iOS 客户端](docs/ios.md) · [工作站与中转](docs/remote-relay.md#配置工作站)
 
-`Stop` hook 只作为停止候选；以 `turn/completed` 确认结束，避免其他 Stop hook 请求继续生成时误报。`PermissionRequest` 也不直接算等待人工，须观察到客户端授权请求。结构化提问通过本地协议观察补齐普通 hook 的覆盖：包括请求用户输入的 RPC，以及 `request_user_input_async` 产生的异步问题卡片。异步卡片出现时即可提醒，agent 可以继续执行；后续回合完成转为完成状态，新用户回合清理旧问题记录。切回窗口只确认已查看，不提交回答。
+桌面服务把提醒状态、会话标题和工作目录保存在本机 SQLite，默认位于 `~/.local/state/agent-done/state.sqlite3`。
 
-hook 仅发送事件类型、会话 ID、回合 ID 和来源，短超时、失败放行。状态服务不可用时，Codex 消息继续转发；启动时提醒服务不可用则继续启动普通 Codex，并显示提示。跟踪服务恢复后需要重新启动或恢复该会话来登记。
+## 文档、反馈与贡献
 
-- 状态：`~/.local/state/agent-done/state.sqlite3`
-- Go 服务诊断日志：systemd 用户日志，手动后台启动时写入状态目录中的 `service.log`
-- 本机控制 socket：`$XDG_RUNTIME_DIR/agent-done/control.sock`
-- 目录权限 0700，socket 0600；不记录原始协议流、用户问题、工具参数或助手正文。会话标题和工作目录用于状态栏显示，会保存在状态库。
+- [开发说明](docs/development.md)涵盖代码入口和状态维护。
+- [Go 构建、验收与回退](docs/go.md)涵盖测试、真实桌面验证和配置还原。
+- [中转传输协议](protocol/relay-v1.md)和[端到端控制协议](protocol/control-v1.md)涵盖部署和互操作。
 
-## 范围与维护
+反馈问题时，请附上 Codex、niri 和 Waybar 版本、复现步骤，以及 `agent-done doctor` 中相关的诊断信息。 [GitHub Issues](https://github.com/OmniBBFB/agent-done/issues)
 
-本机验证版本是 Codex CLI/daemon 0.166.0、niri 26.04、Waybar 0.15、Alacritty 0.16.1。Codex 实验协议更新后需重新验收。入口管理本机 daemon 连接，不接受 `--remote` 或 `--no-daemon`；暂不支持 tmux/screen 内多个窗格、远程终端或嵌入式 IDE 终端。声音和邮件留待后续。
+提交代码前，在仓库根目录运行 `go test ./...`。涉及窗口识别、焦点或跳转的改动，可按[桌面验收步骤](docs/go.md#构建与验证)验证。
 
-工作区是一张虚拟桌面，可类比行列之外的 z 维度。niri 每个显示器的工作区上下排列；工作区内列从左到右、同列的行从上到下。工作区序号和行列会变化，内部关联使用窗口 ID。
+## 许可证
 
-```sh
-go test ./...
-```
-
-Go 测试覆盖会话状态、请求归属、配置合并和旧 SQLite 数据。真实桌面验收方法见 [Go 版开发说明](docs/go.md)。
-
-退出时 Codex 原生提示可能包含临时连接地址，恢复时请使用 `agent-done codex resume <ID>`；恢复沿用会话已有权限设置。
+仓库目前尚未附带许可证文件。
