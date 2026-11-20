@@ -41,7 +41,7 @@ func TestObserverKeepsPerConnectionRequestOwnership(t *testing.T) {
 	}
 	b.observe([]byte(`{"method":"serverRequest/resolved","params":{"threadId":"b","requestId":7}}`), false)
 	b.observe([]byte(`{"method":"item/completed","params":{"threadId":"b","turnId":"t","item":{"type":"agentMessage","id":"next","delivery":"async","questions":[{"text":"choose"}]}}}`), false)
-	if second[2].Key != second[1].Key || second[3].Kind != "question" {
+	if len(second) != 5 || second[2].Key != second[1].Key || second[3].Op != "history_changed" || second[4].Kind != "question" {
 		t.Fatalf("question lifecycle: %+v", second)
 	}
 }

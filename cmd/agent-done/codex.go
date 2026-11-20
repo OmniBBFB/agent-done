@@ -169,6 +169,7 @@ func (o *Observer) server(message map[string]any) {
 			o.emit(Request{Op: "bind", Session: threadID, Connection: o.connection, Identity: &identity,
 				Title: str(thread["name"]), CWD: str(thread["cwd"])})
 		} else if context.method == "thread/unsubscribe" && o.sessions[context.session] && message["error"] == nil {
+			delete(o.sessions, context.session)
 			o.emit(Request{Op: "deactivate", Session: context.session, Connection: o.connection})
 		}
 		return
@@ -198,6 +199,10 @@ func (o *Observer) server(message map[string]any) {
 		event.Op, event.Key = "request_close", o.connection+":"+key
 	case method == "item/completed":
 		item := object(params["item"])
+		kind := str(item["type"])
+		if kind == "userMessage" || kind == "agentMessage" {
+			o.emit(Request{Op: "history_changed", Session: sid, Connection: o.connection})
+		}
 		questions, _ := item["questions"].([]any)
 		itemID := str(item["id"])
 		if str(item["type"]) != "agentMessage" || str(item["delivery"]) != "async" || len(questions) == 0 || itemID == "" {
@@ -260,21 +265,48 @@ func proxyConnection(ctx context.Context, client *websocket.Conn, observer *Obse
 	closeBoth := func() { client.Close(); upstream.Close() }
 	stop := context.AfterFunc(ctx, closeBoth)
 	defer stop()
+	proxyCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	control := newProxyControl(observer, upstream)
+	defer control.serve(proxyCtx)()
 	var group sync.WaitGroup
-	relay := func(src, dst *websocket.Conn, fromClient bool) {
+	var downstream sync.Mutex
+	writeDown := func(frame int, raw []byte) error {
+		downstream.Lock()
+		defer downstream.Unlock()
+		return client.WriteMessage(frame, raw)
+	}
+	group.Go(func() {
 		defer closeBoth()
 		for {
-			frame, raw, err := src.ReadMessage()
+			frame, raw, err := client.ReadMessage()
 			if err != nil {
 				return
 			}
-			if err := dst.WriteMessage(frame, observer.observe(raw, fromClient)); err != nil {
+			reply, err := control.desktop(frame, raw)
+			if err != nil {
+				return
+			}
+			if reply != nil && writeDown(websocket.TextMessage, reply) != nil {
 				return
 			}
 		}
-	}
-	group.Go(func() { relay(client, upstream, true) })
-	group.Go(func() { relay(upstream, client, false) })
+	})
+	group.Go(func() {
+		defer closeBoth()
+		for {
+			frame, raw, err := upstream.ReadMessage()
+			if err != nil {
+				return
+			}
+			if control.server(raw) {
+				continue
+			}
+			if writeDown(frame, raw) != nil {
+				return
+			}
+		}
+	})
 	group.Wait()
 }
 

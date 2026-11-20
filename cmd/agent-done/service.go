@@ -18,11 +18,13 @@ import (
 )
 
 type Service struct {
-	mu          sync.Mutex // Serializes state transitions, observations and publication.
-	desktopMu   sync.Mutex
-	state       *State
-	previous    []byte
-	subscribers map[chan *Snapshot]struct{}
+	mu             sync.Mutex // Serializes state transitions, observations and publication.
+	desktopMu      sync.Mutex
+	state          *State
+	previous       []byte
+	subscribers    map[chan *Snapshot]struct{}
+	remoteUpdates  chan struct{}
+	remoteActivity map[string]float64
 }
 
 func (s *Service) publish(snapshot *Snapshot) {
@@ -139,6 +141,13 @@ func (s *Service) desktopRequest(ctx context.Context, r Request) (Response, erro
 	return Response{}, errors.New("unknown desktop operation")
 }
 
+func (s *Service) notifyRemote() {
+	select {
+	case s.remoteUpdates <- struct{}{}:
+	default:
+	}
+}
+
 func (s *Service) dispatch(ctx context.Context, r Request) (Response, error) {
 	switch r.Op {
 	case "identify", "desktop_status", "focus":
@@ -146,6 +155,13 @@ func (s *Service) dispatch(ctx context.Context, r Request) (Response, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if r.Op == "history_changed" {
+		if r.Session != "" && s.remoteActivity != nil {
+			s.remoteActivity[r.Session] = now()
+			s.notifyRemote()
+		}
+		return Response{OK: true}, nil
+	}
 	if r.Op != "status" && r.Op != "diagnostics" {
 		if err := s.state.apply(r); err != nil {
 			return Response{}, err
@@ -154,6 +170,13 @@ func (s *Service) dispatch(ctx context.Context, r Request) (Response, error) {
 	snapshot, err := s.state.snapshot()
 	if err != nil {
 		return Response{}, err
+	}
+	switch r.Op {
+	case "bind", "unbind", "deactivate", "remove", "running", "complete", "interrupt", "title", "request_open", "request_close":
+		s.notifyRemote()
+		if r.Op == "remove" {
+			delete(s.remoteActivity, r.Session)
+		}
 	}
 	s.publish(snapshot)
 	result := Response{OK: true, Snapshot: snapshot}
@@ -317,9 +340,11 @@ func serve(ctx context.Context) error {
 	group := sync.WaitGroup{}
 	defer group.Wait()
 	defer cancel()
-	service := &Service{state: state, subscribers: make(map[chan *Snapshot]struct{})}
+	service := &Service{state: state, subscribers: make(map[chan *Snapshot]struct{}),
+		remoteUpdates: make(chan struct{}, 1), remoteActivity: make(map[string]float64)}
 	group.Go(func() { service.watchDesktop(ctx) })
 	group.Go(func() { service.prune(ctx) })
+	group.Go(func() { service.serveRemote(ctx) })
 	for {
 		conn, err := listener.Accept()
 		if err != nil {

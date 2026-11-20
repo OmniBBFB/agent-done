@@ -71,8 +71,7 @@ ChaCha20Poly1305 `0x0003`。CryptoKit 对应
 会话 `state` 为 `idle`、`running`、`waiting` 或 `closed`。
 历史从最新的消息开始，`role` 为 `user` 或 `assistant`。单条消息
 如果超过该页容量，工作站可返回带 `truncated: true` 的片段。
-读历史无需恢复会话。允许查看的旧会话仍可列出。没有可用的
-原 Codex 连接时，只能读取历史。
+Go 工作站返回本机 Agent Done 当前跟踪的存活会话，覆盖所有工作目录。会话存活期间可以读取已有文本历史，包括从桌面恢复后保留的历史。会话结束后，工作站会从列表移除该会话并拒绝新的历史查询。缺少支持控制的原 Codex 代理连接时，会话仍可读取。
 
 状态提示触发重新请求受影响的会话或待处理快照。App 首次连接和重连
 都主动刷新。中转和工作站不承诺离线状态提示重放。
@@ -100,7 +99,7 @@ ChaCha20Poly1305 `0x0003`。CryptoKit 对应
   "method": "interaction.respond",
   "params": {
     "session_id": "session-7",
-    "interaction_id": "interaction-19",
+    "interaction_id": "957b7681-5455-441e-aa69-d8f22eec4f9b",
     "idempotency_key": "659c97e1-a084-45e7-949f-21c801b97f72",
     "response": {"kind":"approval","decision":"allow_once"}
   }
@@ -133,7 +132,9 @@ ChaCha20Poly1305 `0x0003`。CryptoKit 对应
 是谁处理时使用 `closed`。转发失败或断线后，先从配对工作站查询与刷新，
 避免自动重发可能已经送达的批准。
 
-## 继续会话扩展（候选）
+Go 工作站只向 `control_peers` 指定并已配对的设备公开待处理卡片和控制方法。它会转发具有完整工作目录和命令的审批、拒绝文件修改请求，以及回答阻塞且无密项的结构化提问。缺少可核对变更明细的文件修改只提供拒绝，异步问题、权限变更和密项继续由原桌面会话处理。工作站以写入原连接确认 `submitted`，以原请求关闭确认 `closed`。 [工作站配置](../docs/remote-relay.md#配置工作站)
+
+## 继续会话扩展
 
 工作站可在 `sessions.list` 的条目中添加 `can_send_message: true`，表示该手机有权在会话空闲时发起新的 Codex 回合。字段缺失或为 `false` 时，客户端仍可查看历史和处理已有交互。
 

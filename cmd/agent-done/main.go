@@ -259,7 +259,7 @@ func waybar(ctx context.Context) error {
 }
 
 func usage() {
-	fmt.Println("用法: agent-done {codex|serve|waybar|jump|status|ack|doctor|install}")
+	fmt.Println("用法: agent-done {codex|serve|waybar|jump|status|ack|doctor|install|remote}")
 }
 
 func main() {
@@ -295,6 +295,8 @@ func main() {
 	code := 0
 	var err error
 	switch args[0] {
+	case "remote":
+		err = runRemote(args[1:])
 	case "codex":
 		args = args[1:]
 		if len(args) > 0 && args[0] == "--" {
