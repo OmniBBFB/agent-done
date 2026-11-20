@@ -2,42 +2,102 @@ import SwiftUI
 
 struct WorkspaceView: View {
     private enum Tab: Hashable {
-        case attention, sessions, settings
+        case attention, workbench, conversation
+    }
+
+    private enum Filter: String, CaseIterable, Identifiable {
+        case all = "全部"
+        case running = "进行中"
+        case completed = "已完成"
+
+        var id: Self { self }
+
+        func includes(_ status: SessionStatus) -> Bool {
+            switch self {
+            case .all: true
+            case .running: status == .running
+            case .completed: status == .completed
+            }
+        }
+    }
+
+    private struct PendingRequest: Identifiable {
+        let session: AgentSession
+        let interaction: Interaction
+
+        var id: Key { Key(session: session.id, interaction: interaction.id) }
+
+        struct Key: Hashable {
+            let session: AgentSession.ID
+            let interaction: Interaction.ID
+        }
     }
 
     @Bindable var store: SessionStore
-    @AppStorage("agentDoneTheme") private var theme = WorkspaceTheme.terminal
     @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var contrast
     @State private var selectedTab: Tab = .attention
-    @State private var attentionPath: [AgentSession.ID] = []
-    @State private var sessionsPath: [AgentSession.ID] = []
+    @State private var activeSessionID: AgentSession.ID?
+    @State private var expandedRequest: PendingRequest.ID?
+    @State private var changedExpansion = false
+    @State private var filter: Filter = .all
+    @State private var showsSettings = false
     @State private var confirmsRemoval = false
 
-    private var palette: ThemePalette { theme.palette(for: scheme, highContrast: contrast == .increased) }
+    private var palette: ThemePalette { WorkspaceStyle.palette(for: scheme, highContrast: contrast == .increased) }
+    private var requests: [PendingRequest] {
+        store.sessions.flatMap { session in
+            session.interactions.map { PendingRequest(session: session, interaction: $0) }
+        }
+    }
+
+    private var activeSession: AgentSession? {
+        store.sessions.first { $0.id == activeSessionID } ?? store.sessions.first
+    }
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            sessionStack(path: $attentionPath, attentionOnly: true)
-                .tabItem { Label("待处理", systemImage: "tray.fill") }
+            workspaceStack { inbox }
+                .tabItem { Label("待处理", systemImage: "tray") }
                 .badge(store.sessions.filter { $0.status.needsAttention }.count)
                 .tag(Tab.attention)
 
-            sessionStack(path: $sessionsPath, attentionOnly: false)
-                .tabItem { Label("会话", systemImage: "text.bubble.fill") }
-                .tag(Tab.sessions)
+            workspaceStack { workbench }
+                .tabItem { Label("工作台", systemImage: "square.stack") }
+                .tag(Tab.workbench)
 
             NavigationStack {
-                settings
-                    .navigationTitle("设置")
+                if let session = activeSession {
+                    SessionDetailView(store: store, sessionID: session.id, palette: palette)
+                        .id(session.id)
+                } else {
+                    ContentUnavailableView("暂无会话", systemImage: "text.bubble")
+                        .workspaceCanvas(palette)
+                        .navigationTitle("会话")
+                        .navigationBarTitleDisplayMode(.inline)
+                }
             }
-            .tabItem { Label("设置", systemImage: "gearshape.fill") }
-            .tag(Tab.settings)
+            .tabItem { Label("会话", systemImage: "text.bubble") }
+            .tag(Tab.conversation)
         }
         .tint(palette.accent)
         .onChange(of: store.generation) {
-            attentionPath.removeAll()
-            sessionsPath.removeAll()
+            activeSessionID = nil
+            expandedRequest = nil
+            changedExpansion = false
+            filter = .all
+        }
+        .sheet(isPresented: $showsSettings) {
+            NavigationStack {
+                settings
+                    .navigationTitle("设置")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("完成") { showsSettings = false }
+                        }
+                    }
+            }
         }
         .alert("操作提示", isPresented: Binding(
             get: { store.error != nil },
@@ -49,157 +109,223 @@ struct WorkspaceView: View {
         }
     }
 
-    private func sessionStack(path: Binding<[AgentSession.ID]>, attentionOnly: Bool) -> some View {
-        NavigationStack(path: path) {
-            VStack(spacing: 0) {
-                sessionList(attentionOnly: attentionOnly)
+    private func workspaceStack<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        NavigationStack {
+            ScrollView {
+                content()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 24)
+                    .frame(maxWidth: 720)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
-            .navigationTitle(attentionOnly ? "待处理" : "会话")
-            .navigationDestination(for: AgentSession.ID.self) { id in
-                SessionDetailView(store: store, sessionID: id, theme: theme, palette: palette)
-            }
-        }
-    }
-
-    private func sessionList(attentionOnly: Bool) -> some View {
-        let sessions = store.sessions.filter { !attentionOnly || $0.status.needsAttention }
-
-        return List {
-            Section {
-                overview(count: sessions.count, attentionOnly: attentionOnly)
-                    .listRowBackground(palette.canvas)
-                    .listRowSeparator(.hidden)
-            }
-            if !store.loaded {
-                ProgressView("正在读取会话")
-                    .listRowBackground(palette.surface)
-            } else if sessions.isEmpty {
-                emptyState(attentionOnly: attentionOnly)
-                    .listRowBackground(palette.canvas)
-            } else {
-                ForEach(store.workstations) { workstation in
-                    let items = sessions.filter { $0.workstationID == workstation.id }
-                    if !items.isEmpty {
-                        Section {
-                            ForEach(items) { session in
-                                NavigationLink(value: session.id) {
-                                    SessionRow(session: session, theme: theme, palette: palette)
-                                }
-                                .listRowBackground(theme == .workbench ? palette.surface : palette.canvas)
-                                .listRowSeparatorTint(palette.rule)
-                            }
-                        } header: {
-                            WorkstationLabel(workstation: workstation, palette: palette)
-                        }
+            .foregroundStyle(palette.ink)
+            .background(palette.canvas)
+            .refreshable { await store.refresh(showErrors: true) }
+            .navigationTitle("AgentDone")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showsSettings = true
+                    } label: {
+                        Label("设置", systemImage: "gearshape")
                     }
                 }
             }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(palette.canvas)
-        .refreshable { await store.refresh(showErrors: true) }
     }
 
-    private func overview(count: Int, attentionOnly: Bool) -> some View {
-        let state = connection
-        return VStack(alignment: .leading, spacing: 10) {
-            if store.loaded, count > 0 {
-                Label {
-                    Text(attentionOnly ? "\(count) 个会话待处理" : "\(count) 个会话")
-                        .font(.system(.title2, design: theme.headingDesign).weight(.bold))
-                } icon: {
-                    Image(systemName: theme.icon).foregroundStyle(palette.accent)
+    private var inbox: some View {
+        let requests = requests
+        let waiting = store.sessions.filter { $0.status.needsAttention && $0.interactions.isEmpty }
+        let completed = Array(store.sessions.filter { $0.status == .completed }.prefix(3))
+
+        return VStack(alignment: .leading, spacing: 16) {
+            overview("待处理")
+            if !store.loaded {
+                ProgressView("正在读取会话")
+            } else if requests.isEmpty && waiting.isEmpty {
+                emptyState("没有待处理会话", icon: "checkmark.circle")
+            } else {
+                ForEach(requests) { request in
+                    inboxRequest(request, first: requests.first?.id)
                 }
-                .accessibilityAddTraits(.isHeader)
+                ForEach(waiting) { session in sessionLink(session) }
             }
-            Label(state.text, systemImage: state.icon)
-                .font(.subheadline)
-                .foregroundStyle(palette.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            if !completed.isEmpty {
+                WorkspaceSectionTitle(title: "最近完成", palette: palette)
+                    .padding(.top, 8)
+                ForEach(completed) { session in sessionLink(session) }
+            }
         }
-        .foregroundStyle(palette.ink)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 14)
-        .padding(.horizontal, 16)
-        .background(palette.surface, in: RoundedRectangle(cornerRadius: theme == .workbench ? 18 : 10))
-        .overlay(alignment: .leading) {
-            if theme != .workbench {
-                UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10)
-                    .fill(palette.accent)
-                    .frame(width: 3)
+    }
+
+    private func inboxRequest(_ request: PendingRequest, first: PendingRequest.ID?) -> some View {
+        let session = request.session
+        let interaction = request.interaction
+        let isExpanded = changedExpansion ? expandedRequest == request.id : first == request.id
+        let workstation = store.workstations.first { $0.id == session.workstationID }
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                changedExpansion = true
+                expandedRequest = isExpanded ? nil : request.id
+            } label: {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline) {
+                        switch interaction.prompt {
+                        case .approval: Label("等待审批", systemImage: "lock.shield")
+                        case .question: Label("等待回答", systemImage: "questionmark.bubble")
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .accessibilityHidden(true)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(palette.accent)
+                    Text(session.title).font(.headline).foregroundStyle(palette.ink)
+                    if let workstation {
+                        let project = session.directory.map { URL(fileURLWithPath: $0).lastPathComponent }
+                        Text(project.map { "\(workstation.name) / \($0)" } ?? workstation.name)
+                            .font(.subheadline).foregroundStyle(palette.muted)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .padding(14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(isExpanded ? "已展开" : "已折叠")
+            if isExpanded {
+                InteractionCard(store: store, session: session, interaction: interaction, palette: palette) { reply in
+                    Task {
+                        if await store.submit(reply, session: session.id, interaction: interaction) {
+                            changedExpansion = false
+                        }
+                    }
+                }
+                Button("打开会话") { openSession(session.id) }
+                    .buttonStyle(.borderless)
+                    .frame(minHeight: 44)
+                    .padding(.horizontal, 14)
+            }
+        }
+        .background(palette.surface, in: RoundedRectangle(cornerRadius: WorkspaceStyle.surfaceRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: WorkspaceStyle.surfaceRadius).strokeBorder(palette.rule)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var workbench: some View {
+        LazyVStack(alignment: .leading, spacing: 12) {
+            overview("工作台")
+            Picker("会话状态", selection: $filter) {
+                ForEach(Filter.allCases) { option in Text(option.rawValue).tag(option) }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("workbench-filter")
+            if !store.loaded {
+                ProgressView("正在读取会话")
+            } else if store.workstations.isEmpty {
+                emptyState("没有工作站会话", icon: "desktopcomputer")
+            } else {
+                ForEach(store.workstations) { workstation in
+                    workstationGroup(workstation)
+                }
+            }
+        }
+    }
+
+    private func workstationGroup(_ workstation: Workstation) -> some View {
+        let sessions = store.sessions.filter { $0.workstationID == workstation.id && filter.includes($0.status) }
+        return VStack(alignment: .leading, spacing: 0) {
+            WorkstationLabel(workstation: workstation, palette: palette)
+                .padding(.vertical, 10)
+                .accessibilityAddTraits(.isHeader)
+            Divider().overlay(palette.rule)
+            if sessions.isEmpty {
+                Text(filter == .all ? "暂无会话" : "没有符合筛选的会话")
+                    .font(.subheadline)
+                    .foregroundStyle(palette.muted)
+                    .padding(.vertical, 12)
+            }
+            ForEach(sessions) { session in
+                sessionLink(session, cached: !workstation.isOnline)
+                Divider().overlay(palette.rule)
+            }
+        }
+    }
+
+    private func sessionLink(_ session: AgentSession, cached: Bool = false) -> some View {
+        Button {
+            openSession(session.id)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "doc.text").foregroundStyle(palette.muted).accessibilityHidden(true)
+                SessionRow(session: session, palette: palette, cached: cached)
+                Image(systemName: "chevron.right")
+                    .font(.footnote)
+                    .foregroundStyle(palette.muted)
                     .accessibilityHidden(true)
             }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("open-session-" + session.id)
+    }
+
+    private func openSession(_ id: AgentSession.ID) {
+        activeSessionID = id
+        selectedTab = .conversation
+    }
+
+    private func overview(_ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            WorkspaceHeading(title: title, palette: palette)
+            if let issue = store.connectionIssue {
+                Label(issue, systemImage: "wifi.slash").font(.subheadline).foregroundStyle(palette.muted)
+            } else if store.isDemo {
+                Text("本地演示").font(.footnote).foregroundStyle(palette.muted)
+            }
         }
     }
 
-    private var connection: (text: String, icon: String) {
-        if store.isDemo { return ("演示模式", "iphone") }
-        if let issue = store.connectionIssue { return (issue, "wifi.slash") }
-        if !store.loaded { return ("正在连接工作站", "link") }
-        if !store.workstations.contains(where: \.isOnline) { return ("工作站离线", "wifi.slash") }
-        return ("已连接工作站", "link")
-    }
-
-    private func emptyState(attentionOnly: Bool) -> some View {
-        let online = store.isDemo || store.workstations.contains(where: \.isOnline)
+    private func emptyState(_ title: String, icon: String) -> some View {
+        let connected = store.isDemo || store.workstations.contains(where: \.isOnline)
         return ContentUnavailableView(
-            online ? (attentionOnly ? "没有待处理会话" : "没有会话") : "暂时无法读取会话",
-            systemImage: online ? (attentionOnly ? "checkmark.circle" : "text.bubble") : "wifi.slash",
-            description: online ? nil : Text("下拉以重新连接。")
+            connected ? title : "暂时无法读取会话",
+            systemImage: connected ? icon : "wifi.slash",
+            description: connected ? nil : Text("下拉以重新连接。")
         )
-        .foregroundStyle(palette.ink)
     }
 
     private var settings: some View {
         List {
-            Section("主题") {
-                ForEach(WorkspaceTheme.allCases) { option in
-                    Button {
-                        theme = option
-                    } label: {
-                        HStack(spacing: 12) {
-                            let swatch = option.palette(for: scheme, highContrast: contrast == .increased)
-                            Image(systemName: option.icon)
-                                .foregroundStyle(swatch.accent)
-                                .frame(width: 36, height: 36)
-                                .background(swatch.canvas, in: RoundedRectangle(cornerRadius: 8))
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(option.title).font(.headline).foregroundStyle(palette.ink)
-                                Text(option.summary).font(.subheadline).foregroundStyle(palette.muted)
-                            }
-                            Spacer(minLength: 6)
-                            if option == theme {
-                                Image(systemName: "checkmark").accessibilityHidden(true)
-                            }
-                        }
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
-                    }
-                    .accessibilityAddTraits(option == theme ? .isSelected : [])
-                    .listRowBackground(palette.surface)
-                }
-            }
-
-            Section("连接") {
+            Section {
                 LabeledContent("运行模式", value: store.isDemo ? "演示" : "远程")
                 NavigationLink {
-                    PairingView(store: store)
+                    PairingView(store: store, palette: palette)
                 } label: {
                     Label(store.isDemo ? "配对工作站" : "管理配对", systemImage: "link")
                 }
                 if let pairing = store.pairing {
                     Text(pairing.relay).font(.footnote.monospaced()).foregroundStyle(palette.muted)
                 }
+            } header: {
+                WorkspaceSectionTitle(title: "连接", palette: palette)
             }
             .listRowBackground(palette.surface)
 
             if !store.workstations.isEmpty {
-                Section("工作站") {
+                Section {
                     ForEach(store.workstations) { workstation in
                         WorkstationLabel(workstation: workstation, palette: palette)
                     }
+                } header: {
+                    WorkspaceSectionTitle(title: "工作站", palette: palette)
                 }
                 .listRowBackground(palette.surface)
             }
@@ -213,8 +339,11 @@ struct WorkspaceView: View {
             .listRowBackground(palette.surface)
             .disabled(store.submitting || store.refreshing)
         }
+        .listStyle(.insetGrouped)
+        .listSectionSpacing(WorkspaceStyle.sectionSpacing)
         .scrollContentBackground(.hidden)
-        .background(palette.canvas)
+        .foregroundStyle(palette.ink)
+        .workspaceCanvas(palette)
         .confirmationDialog("移除本机配对？", isPresented: $confirmsRemoval, titleVisibility: .visible) {
             Button("移除本机配对", role: .destructive) {
                 do { try store.useDemo() }
@@ -248,8 +377,11 @@ private struct WorkstationLabel: View {
     }
 
     private var name: some View {
-        Label(workstation.name, systemImage: "desktopcomputer")
-            .foregroundStyle(palette.ink)
+        HStack(spacing: 6) {
+            Image(systemName: "desktopcomputer").accessibilityHidden(true)
+            Text(workstation.name)
+        }
+        .foregroundStyle(palette.ink)
     }
 
     private var status: some View {
@@ -260,29 +392,55 @@ private struct WorkstationLabel: View {
 
 private struct SessionRow: View {
     let session: AgentSession
-    let theme: WorkspaceTheme
     let palette: ThemePalette
+    var cached = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            if theme == .terminal { status }
-            Text(session.title)
-                .font(.system(.headline, design: theme.headingDesign))
-                .foregroundStyle(palette.ink)
-            if theme != .terminal { status }
-            if let directory = session.directory {
-                Text(directory).font(.footnote.monospaced()).foregroundStyle(palette.muted)
-            } else if let date = session.updatedAt {
-                Text(date, format: .dateTime.month().day().hour().minute())
-                    .font(.footnote.monospacedDigit()).foregroundStyle(palette.muted)
+        VStack(alignment: .leading, spacing: WorkspaceStyle.entrySpacing) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    title.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    status.fixedSize()
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    title
+                    status
+                }
             }
+            metadata
         }
-        .frame(minHeight: 44, alignment: .leading)
-        .padding(.vertical, theme == .workbench ? 7 : 4)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .padding(.vertical, WorkspaceStyle.entrySpacing)
         .accessibilityElement(children: .combine)
     }
 
-    private var status: some View { StatusLabel(status: session.status, palette: palette) }
+    private var title: some View {
+        Text(session.title)
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(palette.ink)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var metadata: some View {
+        if let directory = session.directory {
+            Text(directory)
+                .font(.footnote.monospaced())
+                .foregroundStyle(palette.muted)
+        } else if let date = session.updatedAt {
+            Text(date, format: .dateTime.month().day().hour().minute())
+                .font(.footnote.monospacedDigit())
+                .foregroundStyle(palette.muted)
+        }
+    }
+
+    @ViewBuilder private var status: some View {
+        if cached {
+            Text("上次同步").font(.footnote).foregroundStyle(palette.muted)
+        } else {
+            StatusLabel(status: session.status, palette: palette)
+        }
+    }
 }
 
 struct StatusLabel: View {
@@ -303,8 +461,12 @@ struct StatusLabel: View {
     }
 
     var body: some View {
-        Label(status.title, systemImage: icon)
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(status.needsAttention ? palette.accent : palette.muted)
+        HStack(spacing: 5) {
+            Image(systemName: icon).accessibilityHidden(true)
+            Text(status.title)
+        }
+        .font(.footnote.weight(.semibold))
+        .foregroundStyle(status.needsAttention ? palette.accent : palette.muted)
+        .accessibilityElement(children: .combine)
     }
 }

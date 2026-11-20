@@ -1,51 +1,16 @@
+// Hallmark · redesign: full · shape: app screen · style: cool white and petrol teal · signature: the live request queue
+// Hallmark · pre-emit critique: P4 H4 E4 S4 R5 V4 · lead with each session's actual status or request, and use native controls throughout
 import SwiftUI
 
-enum WorkspaceTheme: String, CaseIterable, Identifiable {
-    case terminal, workbench, journal
+enum WorkspaceStyle {
+    static let sectionSpacing: CGFloat = 14
+    static let entrySpacing: CGFloat = 6
+    static let surfaceRadius: CGFloat = 10
 
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .terminal: "终端"
-        case .workbench: "工作台"
-        case .journal: "纪要"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .terminal: "提示符、等宽字和连续输出"
-        case .workbench: "分组卡片，优先扫读状态"
-        case .journal: "按角色排版，适合回看长会话"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .terminal: "terminal"
-        case .workbench: "square.grid.2x2"
-        case .journal: "text.alignleft"
-        }
-    }
-
-    var headingDesign: Font.Design {
-        switch self {
-        case .terminal: .monospaced
-        case .workbench: .default
-        case .journal: .serif
-        }
-    }
-
-    func palette(for scheme: ColorScheme, highContrast: Bool = false) -> ThemePalette {
-        let dark = scheme == .dark
-        return switch (self, dark) {
-        case (.terminal, false): .init(0xEDF2F1, 0xF9FCFB, 0x182B29, 0x435A55, 0x00584C, highContrast)
-        case (.terminal, true): .init(0x101B1A, 0x172724, 0xEBF7F3, 0xAAC6BC, 0x85DFC5, highContrast)
-        case (.workbench, false): .init(0xEDF1F9, 0xFFFFFF, 0x17253F, 0x495975, 0x234B95, highContrast)
-        case (.workbench, true): .init(0x10172A, 0x1B2740, 0xF0F4FF, 0xBBC9E0, 0xADC8FF, highContrast)
-        case (.journal, false): .init(0xF7F1EA, 0xFFFAF4, 0x32241F, 0x635048, 0x803F28, highContrast)
-        case (.journal, true): .init(0x211916, 0x2C221E, 0xF8EDE4, 0xD2BEB0, 0xF0B995, highContrast)
+    static func palette(for scheme: ColorScheme, highContrast: Bool) -> ThemePalette {
+        switch scheme {
+        case .dark: .init(0x151C23, 0x202A32, 0xEFF5F8, 0xB5C4CD, 0x78DDD0, 0xFFACB9, highContrast)
+        default: .init(0xF2F6F9, 0xFAFCFD, 0x17222C, 0x455460, 0x006961, 0xA12E3C, highContrast)
         }
     }
 }
@@ -56,15 +21,54 @@ struct ThemePalette {
     let ink: Color
     let muted: Color
     let accent: Color
+    let danger: Color
     let rule: Color
 
-    init(_ canvas: UInt32, _ surface: UInt32, _ ink: UInt32, _ muted: UInt32, _ accent: UInt32, _ highContrast: Bool) {
+    init(
+        _ canvas: UInt32, _ surface: UInt32, _ ink: UInt32, _ muted: UInt32,
+        _ accent: UInt32, _ danger: UInt32, _ highContrast: Bool
+    ) {
         self.canvas = Color(rgb: canvas)
         self.surface = Color(rgb: surface)
         self.ink = Color(rgb: ink)
         self.muted = Color(rgb: highContrast ? ink : muted)
         self.accent = Color(rgb: accent)
+        self.danger = Color(rgb: danger)
         rule = Color(rgb: ink).opacity(highContrast ? 0.65 : 0.25)
+    }
+}
+
+struct WorkspaceHeading: View {
+    let title: String
+    let palette: ThemePalette
+
+    var body: some View {
+        Text(title)
+            .font(.largeTitle.bold())
+            .foregroundStyle(palette.ink)
+            .accessibilityAddTraits(.isHeader)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+struct WorkspaceSectionTitle: View {
+    let title: String
+    let palette: ThemePalette
+
+    var body: some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(palette.ink)
+            .textCase(nil)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+extension View {
+    func workspaceCanvas(_ palette: ThemePalette) -> some View {
+        frame(maxWidth: 720)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(palette.canvas)
     }
 }
 

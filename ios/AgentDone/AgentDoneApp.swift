@@ -39,6 +39,7 @@ final class SessionStore {
     private(set) var client: any SessionClient = DemoSessionClient()
     private(set) var connectionIssue: String?
     var error: String?
+    var messageDrafts: [AgentSession.ID: String] = [:]
 
     var isDemo: Bool { remote == nil }
 
@@ -192,6 +193,7 @@ final class SessionStore {
         workstations = []
         sessions = []
         outcomes = [:]
+        messageDrafts = [:]
         loaded = false
         refreshing = false
         submitting = false

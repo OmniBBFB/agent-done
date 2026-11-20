@@ -74,6 +74,12 @@ struct Interaction: Identifiable {
     let prompt: Prompt
     var expiresAt: Date? = nil
     var isExpired: Bool { expiresAt.map { $0 <= .now } ?? false }
+    var title: String {
+        switch prompt {
+        case .approval: "等待审批"
+        case .question: "等待回答"
+        }
+    }
 }
 
 struct HistoryEntry: Identifiable {
@@ -132,15 +138,16 @@ enum SessionClientError: LocalizedError {
 
 actor DemoSessionClient: SessionClient {
     private let workstations = [
-        Workstation(id: "studio", name: "Linux 工作站", isOnline: true),
-        Workstation(id: "lab", name: "备用工作站", isOnline: false),
+        Workstation(id: "studio", name: "Mac mini", isOnline: true),
+        Workstation(id: "lab", name: "Linux devbox", isOnline: false),
     ]
 
     private var sessions = [
         AgentSession(id: "relay", workstationID: "studio", title: "检查中转服务测试",
                      directory: "~/dev/agent-done", status: .approval,
                      interactions: [Interaction(id: "allow-test", prompt: .approval(ApprovalPrompt(
-                        summary: "运行项目测试并生成报告。", action: "go test ./...", canApprove: true
+                        summary: "验证断线后消息是否重复投递。", action: "go test ./internal/remote",
+                        directory: "~/dev/agent-done", canApprove: true
                      )))]),
         AgentSession(id: "mobile", workstationID: "studio", title: "整理 iPhone 客户端流程",
                      directory: "~/dev/agent-done", status: .question,
@@ -166,7 +173,27 @@ actor DemoSessionClient: SessionClient {
             HistoryEntry(id: "2", author: "Codex", text: "会话详情可以集中显示上下文和待处理请求。"),
             HistoryEntry(id: "1", author: "你", text: "梳理 iPhone 上查看和处理会话的流程。"),
         ],
-        "docs": [HistoryEntry(id: "1", author: "Codex", text: "开发文档已更新，包含本地安装和回退说明。")],
+        "docs": [HistoryEntry(id: "1", author: "Codex", text: """
+            ## 更新结果
+
+            开发文档**已更新**，包含以下两部分：
+
+            - 本地安装与重新配对
+            - 故障排查和回退说明
+
+            > 以下命令在仓库根目录运行。
+
+            ```shell
+            go test ./internal/remote
+            ```
+
+            | 检查项 | 结果 |
+            | --- | --- |
+            | 文档链接 | 通过 |
+            | 安装步骤 | 已记录 |
+
+            [查看 Go 测试文档](https://go.dev/doc/tutorial/add-a-test)
+            """)],
         "archive": [HistoryEntry(id: "1", author: "Codex", text: "归档记录已核对。")],
     ]
 
