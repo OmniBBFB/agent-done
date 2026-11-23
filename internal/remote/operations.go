@@ -50,6 +50,8 @@ type Controls interface {
 	Respond(context.Context, string, string, InteractionReply) (string, error)
 	InteractionStatus(context.Context, string, string) (string, error)
 	Start(context.Context, string, string, string, int64) (string, error)
+	AutoApprove(context.Context, string, *bool) (bool, error)
+	CreateSession(context.Context) (string, error)
 }
 
 type Ledger struct{ db *sql.DB }
@@ -76,6 +78,7 @@ type operation struct {
 	Expires int64            `json:"expires_at_ms"`
 	Text    string           `json:"text"`
 	Reply   InteractionReply `json:"response"`
+	Enabled *bool            `json:"enabled,omitempty"`
 }
 
 func (o operation) identity(peer, kind string) []any {
@@ -86,12 +89,21 @@ func (h Handler) control(ctx context.Context, peer, method string, params json.R
 	var op operation
 	invalid := &Problem{Code: "invalid_request"}
 	if !deviceID.MatchString(peer) || !utf8.Valid(params) ||
-		json.Unmarshal(params, &op) != nil || op.Session == "" || len(op.Session) > 256 {
+		json.Unmarshal(params, &op) != nil || len(op.Session) > 256 {
 		return nil, invalid
 	}
 	op.Key = strings.ToLower(op.Key)
 	kind, _, _ := strings.Cut(method, ".")
 	statusQuery := strings.HasSuffix(method, ".status")
+	if method == "sessions.auto_approve.set" {
+		kind = "auto_approve"
+	}
+	if kind != "auto_approve" && op.Enabled != nil {
+		return nil, invalid
+	}
+	if kind != "sessions" && op.Session == "" {
+		return nil, invalid
+	}
 	resultID, resultName := op.Session, "session_id"
 	if kind == "interaction" {
 		op.Target = strings.ToLower(op.Target)
@@ -102,6 +114,14 @@ func (h Handler) control(ctx context.Context, peer, method string, params json.R
 			return nil, invalid
 		}
 		resultID, resultName = op.Target, "interaction_id"
+	} else if kind == "sessions" {
+		if op.Session != "" || op.Target != "" || op.Text != "" || !uuid.MatchString(op.Key) || op.Expires <= 0 {
+			return nil, invalid
+		}
+	} else if kind == "auto_approve" {
+		if op.Enabled == nil || op.Target != "" || op.Text != "" || !uuid.MatchString(op.Key) || op.Expires <= 0 {
+			return nil, invalid
+		}
 	} else if op.Target != "" || !uuid.MatchString(op.Key) || op.Expires <= 0 ||
 		(!statusQuery && (strings.TrimSpace(op.Text) == "" || len(op.Text) > maxTextBytes)) {
 		return nil, invalid
@@ -110,6 +130,15 @@ func (h Handler) control(ctx context.Context, peer, method string, params json.R
 	status, err := h.runOperation(ctx, peer, kind, op, statusQuery)
 	if err != nil {
 		return nil, catalogProblem(err)
+	}
+	if kind == "sessions" {
+		if session, ok := strings.CutPrefix(status, "created:"); ok {
+			return map[string]string{"session_id": session, "status": "created"}, nil
+		}
+		return map[string]string{"status": status}, nil
+	}
+	if kind == "auto_approve" && (status == "enabled" || status == "disabled") {
+		return map[string]any{"session_id": op.Session, "enabled": status == "enabled"}, nil
 	}
 	return map[string]string{resultName: resultID, "status": status}, nil
 }
@@ -148,11 +177,11 @@ func (h Handler) runOperation(ctx context.Context, peer, kind string, op operati
 				return "", &Problem{Code: "conflict"}
 			}
 			if strings.HasPrefix(existingStatus, "error:") {
-				return missingMessageStatus(op.Expires), nil
+				return unreceivedStatus(op.Expires), nil
 			}
 			return existingStatus, nil
 		}
-		return missingMessageStatus(op.Expires), nil
+		return unreceivedStatus(op.Expires), nil
 	}
 
 	clear, err := json.Marshal(op)
@@ -172,7 +201,7 @@ func (h Handler) runOperation(ctx context.Context, peer, kind string, op operati
 	if existingStatus != "" {
 		return stored()
 	}
-	if kind == "messages" {
+	if kind != "interaction" {
 		switch {
 		case op.Expires <= time.Now().UnixMilli():
 			return "expired", nil
@@ -198,9 +227,23 @@ func (h Handler) runOperation(ctx context.Context, peer, kind string, op operati
 	}
 
 	var status string
-	if kind == "interaction" {
+	switch kind {
+	case "interaction":
 		status, err = h.Controls.Respond(ctx, op.Session, op.Target, op.Reply)
-	} else {
+	case "auto_approve":
+		var enabled bool
+		enabled, err = h.Controls.AutoApprove(ctx, op.Session, op.Enabled)
+		status = "disabled"
+		if enabled {
+			status = "enabled"
+		}
+	case "sessions":
+		var session string
+		session, err = h.Controls.CreateSession(ctx)
+		if session != "" && err == nil {
+			status = "created:" + session
+		}
+	default:
 		status, err = h.Controls.Start(ctx, op.Session, op.Key, op.Text, op.Expires)
 	}
 	saved := status
@@ -221,7 +264,7 @@ func (h Handler) runOperation(ctx context.Context, peer, kind string, op operati
 	return status, err
 }
 
-func missingMessageStatus(expires int64) string {
+func unreceivedStatus(expires int64) string {
 	if expires <= time.Now().UnixMilli() {
 		return "expired"
 	}

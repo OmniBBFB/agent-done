@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -178,10 +177,7 @@ func TestControlOnlyAllowsMatchingOptionsAndCompleteApprovalDetails(t *testing.T
 	}
 }
 
-func TestControlHandlerRoutesThroughLinuxProxySocket(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("workstation identity uses Linux /proc")
-	}
+func TestControlHandlerRoutesThroughProxySocket(t *testing.T) {
 	dir, err := os.MkdirTemp("/tmp", "ad-control-")
 	if err != nil {
 		t.Fatal(err)
@@ -192,10 +188,16 @@ func TestControlHandlerRoutesThroughLinuxProxySocket(t *testing.T) {
 	defer cancel()
 
 	p, fakeCodex := controlFixture(t)
-	closeProxy := p.serve(ctx)
+	closeProxy, err := p.serve(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer closeProxy()
 	other, unwanted := controlFixture(t)
-	closeOther := other.serve(ctx)
+	closeOther, err := other.serve(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer closeOther()
 
 	pid := os.Getpid()
@@ -276,5 +278,56 @@ func TestControlHandlerRoutesThroughLinuxProxySocket(t *testing.T) {
 	unwanted.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	if _, _, err := unwanted.ReadMessage(); err == nil {
 		t.Fatal("operation reached a different Codex connection")
+	}
+}
+
+func TestAutoApproveOnlyAffectsNewEligibleRequestsInTheSelectedSession(t *testing.T) {
+	p, codex := controlFixture(t)
+	request := func(id int, session, command string, network bool) []byte {
+		params := map[string]any{"threadId": session, "command": command, "cwd": "/work"}
+		if network {
+			params["networkApprovalContext"] = map[string]string{"host": "example.test"}
+		}
+		raw, _ := json.Marshal(map[string]any{
+			"id": id, "method": "item/commandExecution/requestApproval", "params": params,
+		})
+		return raw
+	}
+	mode := func(enabled bool) {
+		t.Helper()
+		result := p.dispatch(t.Context(), proxyRequest{Operation: "auto_approve", Session: "thread", Enabled: &enabled})
+		if result.Enabled == nil || *result.Enabled != enabled {
+			t.Fatalf("mode = %+v", result)
+		}
+	}
+
+	p.server(request(1, "thread", "printf pending", false))
+	mode(true)
+	auto := request(2, "thread", "printf approved", false)
+	if !p.server(auto) || !p.server(auto) {
+		t.Fatal("automatic replies must be handled at the proxy")
+	}
+	var response struct {
+		ID     int
+		Result map[string]string
+	}
+	if err := codex.ReadJSON(&response); err != nil || response.ID != 2 || response.Result["decision"] != "accept" {
+		t.Fatalf("auto approval = %+v, %v", response, err)
+	}
+
+	p.server(request(3, "thread", "network operation", true))
+	p.server([]byte(`{"id":6,"method":"item/commandExecution/requestApproval","params":{"threadId":"thread","command":"printf checkpoint","cwd":"/work","kind":"humanCommand"}}`))
+	p.server(request(4, "other", "printf other", false))
+	mode(false)
+	p.server(request(5, "thread", "printf disabled", false))
+
+	own := p.dispatch(t.Context(), proxyRequest{Operation: "list", Session: "thread"})
+	other := p.dispatch(t.Context(), proxyRequest{Operation: "list", Session: "other"})
+	if len(own.Cards) != 4 || len(other.Cards) != 1 {
+		t.Fatalf("pending = %+v, %+v", own, other)
+	}
+	codex.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	if _, _, err := codex.ReadMessage(); err == nil {
+		t.Fatal("sent a duplicate or out-of-scope auto approval")
 	}
 }

@@ -116,11 +116,12 @@ type Observer struct {
 	clientRequests map[string]RPCContext
 	serverRequests map[string]string
 	sessions       map[string]bool
+	autoApprove    map[string]bool
 }
 
 func newObserver(identity func() Identity, emit func(Request)) *Observer {
 	return &Observer{connection: connectionID(), command: hookCommand(), identity: identity, emit: emit,
-		clientRequests: map[string]RPCContext{}, serverRequests: map[string]string{}, sessions: map[string]bool{}}
+		clientRequests: map[string]RPCContext{}, serverRequests: map[string]string{}, sessions: map[string]bool{}, autoApprove: map[string]bool{}}
 }
 
 func (o *Observer) client(message map[string]any) bool {
@@ -172,6 +173,7 @@ func (o *Observer) server(message map[string]any) {
 				Title: str(thread["name"]), CWD: str(thread["cwd"])})
 		} else if context.method == "thread/unsubscribe" && o.sessions[context.session] && message["error"] == nil {
 			delete(o.sessions, context.session)
+			delete(o.autoApprove, context.session)
 			o.emit(Request{Op: "deactivate", Session: context.session, Connection: o.connection})
 		}
 		return
@@ -219,6 +221,7 @@ func (o *Observer) server(message map[string]any) {
 	case method == "thread/archived" || method == "thread/deleted" || method == "thread/closed":
 		event.Op = "remove"
 		delete(o.sessions, sid)
+		delete(o.autoApprove, sid)
 	default:
 		return
 	}
@@ -270,7 +273,12 @@ func proxyConnection(ctx context.Context, client *websocket.Conn, socket string,
 	proxyCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	control := newProxyControl(observer, upstream)
-	defer control.serve(proxyCtx)()
+	stopControl, err := control.serve(proxyCtx)
+	if err != nil {
+		log.Printf("local Codex control unavailable: %v", err)
+	} else {
+		defer stopControl()
+	}
 	var group sync.WaitGroup
 	var downstream sync.Mutex
 	writeDown := func(frame int, raw []byte) error {
@@ -452,6 +460,18 @@ func startPrivateCodexServer(ctx context.Context, path, socket string, args []st
 	}
 }
 
+func ensureCodexDaemon(ctx context.Context, path, socket string) error {
+	if exists(socket) {
+		return nil
+	}
+	cmd := exec.CommandContext(ctx, path, "app-server", "daemon", "start")
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("无法启动 Codex daemon: %w", err)
+	}
+	return nil
+}
+
 func launchCodex(args []string) (int, error) {
 	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGHUP)
 	defer stopSignals()
@@ -492,11 +512,9 @@ func launchCodex(args []string) (int, error) {
 		}
 	}
 	upstream := codexSocket()
-	if !privateServer && !exists(upstream) {
-		cmd := exec.CommandContext(ctx, path, "app-server", "daemon", "start")
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		if err := cmd.Run(); err != nil {
-			return 1, fmt.Errorf("无法启动 Codex daemon: %w", err)
+	if !privateServer {
+		if err := ensureCodexDaemon(ctx, path, upstream); err != nil {
+			return 1, err
 		}
 	}
 	if err := privateDir(runtimeDir()); err != nil {

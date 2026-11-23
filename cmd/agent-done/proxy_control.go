@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -22,16 +21,21 @@ type proxyRequest struct {
 	Operation   string
 	Session     string
 	Interaction string
+	Cursor      string
+	Limit       int
 	Reply       remote.InteractionReply
 	Intent      string
 	Text        string
 	Expires     int64
+	Enabled     *bool
 }
 
 type proxyResult struct {
 	Cards   []remote.Interaction
+	History *remote.Page[remote.HistoryItem]
 	Status  string
 	Problem *remote.Problem
+	Enabled *bool
 }
 
 type proxyCard struct {
@@ -51,6 +55,7 @@ type proxyControl struct {
 	mu            sync.Mutex
 	observer      *Observer
 	upstream      *websocket.Conn
+	history       *managedHistory
 	cards         map[string]*proxyCard
 	byRPC         map[string]*proxyCard
 	active        map[string]string
@@ -84,6 +89,20 @@ func (o *Observer) tracks(session string) bool {
 	return o.sessions[session]
 }
 
+// The proxy serializes mode changes and request handling with its writer mutex.
+func (o *Observer) approvalMode(session string, enabled *bool) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if enabled != nil {
+		if *enabled {
+			o.autoApprove[session] = true
+		} else {
+			delete(o.autoApprove, session)
+		}
+	}
+	return o.autoApprove[session]
+}
+
 func decodeRPC(raw []byte) map[string]any {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -92,17 +111,15 @@ func decodeRPC(raw []byte) map[string]any {
 	return frame
 }
 
-func (p *proxyControl) serve(ctx context.Context) func() {
+func (p *proxyControl) serve(ctx context.Context) (func(), error) {
 	socket := proxyControlSocket(p.observer.connection)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
-		log.Printf("local Codex control unavailable: %v", err)
-		return func() {}
+		return nil, err
 	}
 	if err := os.Chmod(socket, 0600); err != nil {
 		listener.Close()
-		log.Printf("local Codex control unavailable: %v", err)
-		return func() {}
+		return nil, err
 	}
 	go func() {
 		for {
@@ -113,7 +130,7 @@ func (p *proxyControl) serve(ctx context.Context) func() {
 			go p.handle(ctx, conn)
 		}
 	}()
-	return func() { listener.Close() }
+	return func() { listener.Close() }, nil
 }
 
 func (p *proxyControl) handle(ctx context.Context, conn *net.UnixConn) {
@@ -155,6 +172,17 @@ func (p *proxyControl) dispatch(ctx context.Context, request proxyRequest) proxy
 		return proxyResult{Status: "expired"}
 	}
 	switch request.Operation {
+	case "history":
+		if p.history == nil {
+			return proxyResult{}
+		}
+		return p.history.page(request.Cursor, request.Limit)
+	case "auto_approve":
+		if ctx.Err() != nil {
+			return rejected("unavailable")
+		}
+		enabled := p.observer.approvalMode(request.Session, request.Enabled)
+		return proxyResult{Enabled: &enabled}
 	case "list":
 		cards := []remote.Interaction{}
 		for _, card := range p.cards {
@@ -182,27 +210,31 @@ func (p *proxyControl) dispatch(ctx context.Context, request proxyRequest) proxy
 		if card.card.Expires > 0 && card.card.Expires <= time.Now().UnixMilli() {
 			return proxyResult{Status: "expired"}
 		}
-		result, problem := codexInteractionResult(card.card, request.Reply)
-		if problem != nil {
-			return proxyResult{Problem: problem}
-		}
 		if ctx.Err() != nil {
 			return rejected("unavailable")
 		}
-		frame, err := json.Marshal(map[string]any{"id": card.rpc, "result": result})
-		if err != nil {
-			return rejected("invalid_request")
-		}
-		card.status = "unknown"
-		if err := p.write(frame, websocket.TextMessage); err != nil {
-			p.upstream.Close()
-			return proxyResult{Status: card.status}
-		}
-		card.status = "submitted"
-		return proxyResult{Status: card.status}
+		return p.respond(card, request.Reply)
 	default:
 		return rejected("invalid_request")
 	}
+}
+
+func (p *proxyControl) respond(card *proxyCard, reply remote.InteractionReply) proxyResult {
+	result, problem := codexInteractionResult(card.card, reply)
+	if problem != nil {
+		return proxyResult{Problem: problem}
+	}
+	frame, err := json.Marshal(map[string]any{"id": card.rpc, "result": result})
+	if err != nil {
+		return rejected("invalid_request")
+	}
+	card.status = "unknown"
+	if err := p.write(frame, websocket.TextMessage); err != nil {
+		p.upstream.Close()
+		return proxyResult{Status: card.status}
+	}
+	card.status = "submitted"
+	return proxyResult{Status: card.status}
 }
 
 func (p *proxyControl) write(raw []byte, frame int) error {
@@ -346,6 +378,15 @@ func (p *proxyControl) server(raw []byte) (owned bool) {
 		session = str(params["thread_id"])
 	}
 	switch method {
+	case "item/started", "item/completed":
+		if p.history != nil && p.observer.tracks(session) {
+			item := params["item"]
+			if method == "item/completed" || object(item)["type"] == "userMessage" {
+				if p.history.record(item) && method == "item/started" {
+					p.observer.emit(Request{Op: "history_changed", Session: session})
+				}
+			}
+		}
 	case "turn/started":
 		if turn := str(object(params["turn"])["id"]); turn != "" && session != "" {
 			p.active[session] = turn
@@ -369,28 +410,53 @@ func (p *proxyControl) server(raw []byte) (owned bool) {
 			card.status = "closed"
 		}
 	default:
-		if hasID && p.observer.tracks(session) {
+		if !hasID {
+			break
+		}
+		if p.observer.tracks(session) {
 			key := rpcKey(id)
-			if p.byRPC[key] != nil {
-				// A repeated request is the same outstanding operation.
-				return false
+			if card := p.byRPC[key]; card != nil {
+				return card.status != "pending"
 			}
 			if card, ok := codexInteraction(method, params, session); ok {
 				encoded, err := json.Marshal(card)
-				if err != nil || len(encoded) > 32<<10 {
+				if err == nil && len(encoded) <= 32<<10 {
+					turn := str(params["turnId"])
+					if turn == "" {
+						turn = str(params["turn_id"])
+					}
+					pending := &proxyCard{session: session, turn: turn, rpc: id, card: card, status: "pending"}
+					p.cards[card.ID], p.byRPC[key] = pending, pending
+					if autoApprovable(card, params) && p.observer.approvalMode(session, nil) {
+						p.respond(pending, remote.InteractionReply{Kind: "approval", Decision: "allow_once"})
+						return true
+					}
 					return false
 				}
-				turn := str(params["turnId"])
-				if turn == "" {
-					turn = str(params["turn_id"])
-				}
-				pending := &proxyCard{session: session, turn: turn, rpc: id, card: card, status: "pending"}
-				p.cards[card.ID] = pending
-				p.byRPC[key] = pending
 			}
+		}
+		if p.history != nil {
+			// A phone-created session has no TUI to answer unsupported requests.
+			reply, _ := json.Marshal(map[string]any{"id": id, "error": map[string]any{
+				"code": -32601, "message": "This request is not supported by Agent Done.",
+			}})
+			if p.write(reply, websocket.TextMessage) != nil {
+				p.upstream.Close()
+			}
+			return true
 		}
 	}
 	return false
+}
+
+func autoApprovable(card remote.Interaction, params map[string]any) bool {
+	if card.Kind != "approval" || card.CanApprove == nil || !*card.CanApprove {
+		return false
+	}
+	// New Codex versions distinguish commands from terminal input and
+	// checkpoints that require a fresh human decision.
+	kind := params["kind"]
+	return kind == nil || kind == "command"
 }
 
 func (p *proxyControl) finishTurn(session string) {

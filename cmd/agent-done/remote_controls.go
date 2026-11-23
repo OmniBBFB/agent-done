@@ -168,3 +168,52 @@ func (c codexCatalog) Start(ctx context.Context, session, intent, text string, e
 	}
 	return "", &remote.Problem{Code: "forbidden"}
 }
+
+func (c codexCatalog) AutoApprove(ctx context.Context, session string, enabled *bool) (bool, error) {
+	snapshot, err := c.snapshot()
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range snapshot.Sessions {
+		if entry.ID != session {
+			continue
+		}
+		// Enabling must target a single live connection. When multiple
+		// connections exist, allow turning the mode off on each of them.
+		connections := controlConnections(entry)
+		if enabled != nil && *enabled {
+			connection := messageConnection(entry)
+			if connection == "" {
+				return false, &remote.Problem{Code: "unavailable"}
+			}
+			connections = []string{connection}
+		}
+		if len(connections) == 0 {
+			return false, &remote.Problem{Code: "unavailable"}
+		}
+		var current bool
+		var failures error
+		for _, connection := range connections {
+			result, err := callProxy(ctx, connection, proxyRequest{
+				Operation: "auto_approve", Session: session, Enabled: enabled,
+			})
+			if err == nil && result.Enabled == nil {
+				err = &remote.Problem{Code: "unavailable"}
+			}
+			if err != nil {
+				failures = errors.Join(failures, err)
+				continue
+			}
+			current = current || *result.Enabled
+		}
+		return current, failures
+	}
+	return false, &remote.Problem{Code: "not_found"}
+}
+
+func (c codexCatalog) CreateSession(ctx context.Context) (string, error) {
+	if c.createSession == nil {
+		return "", &remote.Problem{Code: "unavailable"}
+	}
+	return c.createSession(ctx)
+}

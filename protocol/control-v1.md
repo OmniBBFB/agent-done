@@ -156,6 +156,37 @@ Go 工作站只向 `control_peers` 指定并已配对的设备公开待处理卡
 
 工作站返回 `invalid_request`、`forbidden`、`not_found`、`unavailable` 或 `busy` 时，须能确认该意图没有被交给 Codex。若提交途中断线且无法确认，应返回 `unknown`。工作站在新消息或后续输出可通过 `history.page` 读取时更新会话 `updated_at_ms`，并发送经过认证的 `state.changed`，供前台客户端刷新。
 
+## 会话管理扩展
+
+支持此扩展的工作站响应 `workstation.capabilities`，查询参数为 `{}`。
+只有获得控制授权的手机能收到 `{"can_create_session":true}` 并新建会话。
+`sessions.list` 可以返回工作目录 `cwd`。支持自动审批的会话返回
+`can_auto_approve: true`。
+
+| 方法 | 参数 |
+| --- | --- |
+| `sessions.create` | `idempotency_key`、`expires_at_ms` |
+| `sessions.create.status` | 同一 `idempotency_key` 和 `expires_at_ms` |
+| `sessions.auto_approve.get` | `session_id` |
+| `sessions.auto_approve.set` | `session_id`、`enabled`、`idempotency_key`、`expires_at_ms` |
+
+新建操作在工作站用户的主目录创建一个空闲 Codex 会话。
+Agent Done 服务持有 Codex 连接和会话登记，手机离线时连接继续存在。
+当前创建方法没有目录选择和恢复会话参数。成功时返回
+`{"status":"created","session_id":"..."}`，其他结果为 `not_received`、
+`expired` 或 `unknown`。与发消息扩展相同，手机使用两分钟有效期，
+工作站在调用 Codex 之前持久登记意图。同一设备重试同一意图时返回原始
+会话 ID。同一幂等键与不同参数一起提交时返回 `conflict`。
+
+自动审批默认关闭，设置和查询正常返回 `{"session_id":"...","enabled":true}`
+或相应的 `false`。工作站按原连接和会话处置新出现的、按既有规则可批准的命令请求，
+每条只提交一次 `allow_once`。既有待处理卡片、网络授权、文件变更、
+权限请求、终端输入、需要人工确认的检查点和提问沿用原处理方式。
+启用时需要唯一的控制连接。模式随原连接关闭或会话取消订阅而结束。
+设置意图同样使用有效期与幂等键。重放旧意图返回当时结果，
+不会把更新后的模式切回去。未确认的设置返回 `status: "unknown"`，
+客户端可用 `sessions.auto_approve.get` 查询当前模式。
+
 ## 联调材料
 
 - [明文消息样例](fixtures/control-v1.json)

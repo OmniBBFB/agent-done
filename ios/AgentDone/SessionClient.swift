@@ -28,6 +28,7 @@ struct Workstation: Identifiable {
     let id: String
     let name: String
     let isOnline: Bool
+    var canCreateSession = false
 }
 
 struct AgentSession: Identifiable {
@@ -39,6 +40,7 @@ struct AgentSession: Identifiable {
     var status: SessionStatus
     var interactions: [Interaction]
     var canSendMessage = false
+    var canAutoApprove = false
 
     var acceptsMessage: Bool {
         guard canSendMessage && interactions.isEmpty else { return false }
@@ -122,7 +124,7 @@ protocol SessionClient: Sendable {
 
 enum SessionClientError: LocalizedError {
     case unavailable, resolved, invalidReply
-    case uncertain, messageTooLong, previousMessageUnconfirmed
+    case uncertain, messageTooLong, previousMessageUnconfirmed, sessionCreationUnconfirmed
 
     var errorDescription: String? {
         switch self {
@@ -131,6 +133,7 @@ enum SessionClientError: LocalizedError {
         case .invalidReply: "请检查回复内容。"
         case .uncertain: "结果尚未确认。再次提交同一回复前，会先向工作站查询状态。"
         case .messageTooLong: "消息超过 16 KiB，请缩短后再发送。"
+        case .sessionCreationUnconfirmed: "新建结果待确认。再次点「新建会话」会先查询这次请求。"
         case .previousMessageUnconfirmed: "上一条消息的发送结果未确认。请先查询其状态。"
         }
     }

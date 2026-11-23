@@ -99,6 +99,14 @@ struct WorkspaceView: View {
                     }
             }
         }
+        .confirmationDialog("新建结果待确认", isPresented: $store.sessionCreationUnconfirmed, titleVisibility: .visible) {
+            Button("保留请求", role: .cancel) {}
+            Button("放弃查询", role: .destructive) {
+                Task { await store.discardSessionCreation() }
+            }
+        } message: {
+            Text("再次点「新建会话」会查询这次请求。如果工作台里已经有新会话，可以放弃查询并直接打开。")
+        }
         .alert("操作提示", isPresented: Binding(
             get: { store.error != nil },
             set: { if !$0 { store.error = nil } }
@@ -241,9 +249,26 @@ struct WorkspaceView: View {
     private func workstationGroup(_ workstation: Workstation) -> some View {
         let sessions = store.sessions.filter { $0.workstationID == workstation.id && filter.includes($0.status) }
         return VStack(alignment: .leading, spacing: 0) {
-            WorkstationLabel(workstation: workstation, palette: palette)
-                .padding(.vertical, 10)
-                .accessibilityAddTraits(.isHeader)
+            HStack {
+                WorkstationLabel(workstation: workstation, palette: palette)
+                    .accessibilityAddTraits(.isHeader)
+                if workstation.canCreateSession {
+                    Spacer()
+                    Button {
+                        Task {
+                            if let session = await store.createSession(on: workstation) {
+                                openSession(session)
+                            }
+                        }
+                    } label: {
+                        Label("新建会话", systemImage: "plus")
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!workstation.isOnline || store.submitting || store.refreshing)
+                }
+            }
+            .padding(.vertical, 10)
             Divider().overlay(palette.rule)
             if sessions.isEmpty {
                 Text(filter == .all ? "暂无会话" : "没有符合筛选的会话")

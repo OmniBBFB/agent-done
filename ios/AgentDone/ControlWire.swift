@@ -15,6 +15,8 @@ enum WireError: LocalizedError {
         case .relay("offline"): "工作站离线。"
         case .relay("forbidden"), .control("forbidden"): "设备未获得这项操作的权限。"
         case .control("conflict"): "该请求已有不同的回复。"
+        case .control("unknown"): "工作站尚未确认操作结果。"
+        case .control("expired"): "操作已过期，请重新提交。"
         case .control("not_found"): "工作站上已找不到该请求。"
         case .unsafeApproval: "审批缺少所需明细，或请求已经过期。"
         case .relay(let status): "中转返回 \(status)。"
@@ -109,6 +111,39 @@ struct WireSession: Decodable {
     let state: String
     let updatedAtMs: Int64
     let canSendMessage: Bool?
+    let canAutoApprove: Bool?
+    let cwd: String?
+}
+
+struct WorkstationCapabilities: Decodable {
+    let canCreateSession: Bool
+}
+
+struct SessionCreationIntent: Codable {
+    let idempotencyKey: String
+    let expiresAtMs: Int64
+}
+
+struct SessionCreationOutcome: Decodable {
+    enum Status: String, Decodable {
+        case created, notReceived = "not_received", expired, unknown
+    }
+
+    let status: Status
+    let sessionId: String?
+}
+
+struct AutoApproveQuery: Encodable {
+    let sessionId: String
+    var enabled: Bool? = nil
+    var idempotencyKey: String? = nil
+    var expiresAtMs: Int64? = nil
+}
+
+struct AutoApproveOutcome: Decodable {
+    let sessionId: String
+    let enabled: Bool?
+    let status: String?
 }
 
 struct MessageDraft: Codable, Sendable {

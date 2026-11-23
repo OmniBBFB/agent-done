@@ -39,6 +39,7 @@ final class SessionStore {
     private(set) var client: any SessionClient = DemoSessionClient()
     private(set) var connectionIssue: String?
     var error: String?
+    var sessionCreationUnconfirmed = false
     var messageDrafts: [AgentSession.ID: String] = [:]
 
     var isDemo: Bool { remote == nil }
@@ -100,7 +101,7 @@ final class SessionStore {
                 guard generation == current, !Task.isCancelled else { return }
                 loaded = true
                 connectionIssue = error.localizedDescription
-                workstations = workstations.map { Workstation(id: $0.id, name: $0.name, isOnline: false) }
+                workstations = workstations.map { Workstation(id: $0.id, name: $0.name, isOnline: false, canCreateSession: $0.canCreateSession) }
                 if showErrors { self.error = error.localizedDescription }
                 return
             }
@@ -145,6 +146,40 @@ final class SessionStore {
         }
         submitting = false
         await refresh()
+    }
+
+    func createSession(on workstation: Workstation) async -> AgentSession.ID? {
+        guard !refreshing, !submitting, let remote, workstation.isOnline, workstation.canCreateSession else { return nil }
+        let current = generation
+        submitting = true
+        defer { if generation == current { submitting = false } }
+        do {
+            let session = try await remote.createSession()
+            guard generation == current else { return nil }
+            submitting = false
+            await refresh()
+            return generation == current ? session : nil
+        } catch {
+            guard generation == current else { return nil }
+            if case SessionClientError.sessionCreationUnconfirmed = error {
+                sessionCreationUnconfirmed = true
+            } else {
+                self.error = error.localizedDescription
+            }
+            submitting = false
+            await refresh()
+            return nil
+        }
+    }
+
+    func discardSessionCreation() async {
+        guard let remote else { return }
+        let current = generation
+        do {
+            try await remote.discardSessionCreation()
+        } catch {
+            if generation == current { self.error = error.localizedDescription }
+        }
     }
 
     func sendMessage(_ text: String, to session: AgentSession.ID) async throws -> MessageDelivery {
@@ -194,6 +229,7 @@ final class SessionStore {
         sessions = []
         outcomes = [:]
         messageDrafts = [:]
+        sessionCreationUnconfirmed = false
         loaded = false
         refreshing = false
         submitting = false

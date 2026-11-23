@@ -6,6 +6,9 @@ actor RemoteSessionClient: SessionClient {
     private let workstationID: String
     private let intentStorage: String
     private let messageStorage: String
+    private let creationStorage: String
+    private var creatingSession = false
+    private var canCreateSession = false
     private var intents: [String: ReplyQuery]
     private var messageDrafts: [String: MessageDraft]
     private var activeMessageOperations = Set<String>()
@@ -19,6 +22,7 @@ actor RemoteSessionClient: SessionClient {
         let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
         intentStorage = PairingVault.intents + "." + digest
         messageStorage = "messages." + digest
+        creationStorage = "session-creation." + digest
         intents = try PairingVault.load([String: ReplyQuery].self, name: intentStorage) ?? [:]
         messageDrafts = try PairingVault.load([String: MessageDraft].self, name: messageStorage) ?? [:]
     }
@@ -29,6 +33,10 @@ actor RemoteSessionClient: SessionClient {
         }
         let sessions: [WireSession] = try await allPages("sessions.list", as: WireSession.self)
         let pending: [WireInteraction] = try await allPages("interactions.snapshot", as: WireInteraction.self)
+        if let capabilities = try? await connection.request("workstation.capabilities", params: [String: String](),
+                                                            as: WorkstationCapabilities.self) {
+            canCreateSession = capabilities.canCreateSession
+        }
         let active = Set(pending.map(\.interactionId))
         let retired = confirmed.keys.filter { !active.contains($0) }
         if !retired.isEmpty {
@@ -45,12 +53,93 @@ actor RemoteSessionClient: SessionClient {
             let cards = interactions[session.sessionId, default: []].compactMap { item in
                 seenInteractions.insert(item.interactionId).inserted ? Self.card(item) : nil
             }
-            return AgentSession(id: session.sessionId, workstationID: workstationID, title: session.title,
+            return AgentSession(id: session.sessionId, workstationID: workstationID, title: session.title, directory: session.cwd,
                                 updatedAt: Date(timeIntervalSince1970: Double(session.updatedAtMs) / 1000),
                                 status: Self.status(session.state, cards: cards), interactions: cards,
-                                canSendMessage: session.canSendMessage == true)
+                                canSendMessage: session.canSendMessage == true, canAutoApprove: session.canAutoApprove == true)
         }
         return result(online: true)
+    }
+
+    func createSession() async throws -> String {
+        guard canCreateSession, !creatingSession else { throw SessionClientError.unavailable }
+        creatingSession = true
+        defer { creatingSession = false }
+
+        let intent: SessionCreationIntent
+        if let pending = try PairingVault.load(SessionCreationIntent.self, name: creationStorage) {
+            guard let status = try? await creationOutcome("sessions.create.status", intent: pending) else {
+                throw SessionClientError.sessionCreationUnconfirmed
+            }
+            switch status.status {
+            case .created:
+                return try finishCreation(status)
+            case .unknown:
+                throw SessionClientError.sessionCreationUnconfirmed
+            case .notReceived:
+                intent = pending
+            case .expired:
+                intent = try newCreationIntent()
+            }
+        } else {
+            intent = try newCreationIntent()
+        }
+
+        let outcome: SessionCreationOutcome
+        do {
+            outcome = try await creationOutcome("sessions.create", intent: intent)
+        } catch WireError.control(let code) {
+            if ["invalid_request", "unavailable", "forbidden"].contains(code) {
+                try PairingVault.remove(creationStorage)
+            }
+            throw WireError.control(code)
+        } catch {
+            guard let checked = try? await creationOutcome("sessions.create.status", intent: intent) else {
+                throw SessionClientError.sessionCreationUnconfirmed
+            }
+            return try finishCreation(checked)
+        }
+        return try finishCreation(outcome)
+    }
+
+    func discardSessionCreation() throws {
+        guard !creatingSession else { throw SessionClientError.unavailable }
+        try PairingVault.remove(creationStorage)
+    }
+
+    func autoApprove(for session: String, enabled: Bool? = nil) async throws -> Bool {
+        let method = enabled == nil ? "sessions.auto_approve.get" : "sessions.auto_approve.set"
+        var query = AutoApproveQuery(sessionId: session, enabled: enabled)
+        if enabled != nil {
+            query.idempotencyKey = UUID().uuidString
+            query.expiresAtMs = Int64((Date.now.timeIntervalSince1970 + 120) * 1000)
+        }
+        let outcome = try await connection.request(method, params: query, as: AutoApproveOutcome.self)
+        guard outcome.sessionId == session else { throw WireError.invalidMessage }
+        if let enabled = outcome.enabled { return enabled }
+        throw WireError.control(outcome.status ?? "unavailable")
+    }
+
+    private func newCreationIntent() throws -> SessionCreationIntent {
+        let intent = SessionCreationIntent(idempotencyKey: UUID().uuidString,
+                                           expiresAtMs: Int64((Date.now.timeIntervalSince1970 + 120) * 1000))
+        try PairingVault.save(intent, name: creationStorage)
+        return intent
+    }
+
+    private func creationOutcome(_ method: String, intent: SessionCreationIntent) async throws -> SessionCreationOutcome {
+        try await connection.request(method, params: intent, as: SessionCreationOutcome.self)
+    }
+
+    private func finishCreation(_ outcome: SessionCreationOutcome) throws -> String {
+        if outcome.status == .expired {
+            try PairingVault.remove(creationStorage)
+            throw SessionClientError.unavailable
+        }
+        guard outcome.status == .created else { throw SessionClientError.sessionCreationUnconfirmed }
+        guard let session = outcome.sessionId, !session.isEmpty else { throw WireError.invalidMessage }
+        try PairingVault.remove(creationStorage)
+        return session
     }
 
     func history(for session: AgentSession.ID, cursor: String?) async throws -> HistoryPage {
@@ -228,7 +317,7 @@ actor RemoteSessionClient: SessionClient {
     }
 
     private func result(online: Bool) -> SessionSnapshot {
-        SessionSnapshot(workstations: [Workstation(id: workstationID, name: workstationID, isOnline: online)],
+        SessionSnapshot(workstations: [Workstation(id: workstationID, name: workstationID, isOnline: online, canCreateSession: canCreateSession)],
                         sessions: cachedSessions)
     }
 

@@ -15,9 +15,17 @@ struct SessionDetailView: View {
     @State private var checkingMessage = false
     @State private var historyLoad = UUID()
     @State private var sentMessage = UUID()
+    @State private var autoApprove: Bool?
+    @State private var updatingApproval = false
+    @State private var confirmsAutoApprove = false
     @FocusState private var composing: Bool
 
     private var session: AgentSession? { store.sessions.first { $0.id == sessionID } }
+    private var approvalAvailable: Bool {
+        guard let session, session.canAutoApprove else { return false }
+        return store.workstations.contains { $0.id == session.workstationID && $0.isOnline }
+    }
+
     private var message: Binding<String> {
         Binding(
             get: { store.messageDrafts[sessionID, default: ""] },
@@ -74,6 +82,7 @@ struct SessionDetailView: View {
                     .refreshable {
                         await store.refresh(showErrors: true)
                         await loadHistory()
+                        await loadAutoApprove()
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         if session.canSendMessage || pendingMessage { composer(for: session) }
@@ -90,6 +99,38 @@ struct SessionDetailView: View {
         .toolbar(.visible, for: .navigationBar)
         .task(id: session?.updatedAt) { await loadHistory() }
         .task(id: store.generation) { await restorePendingMessage() }
+        .task(id: approvalAvailable) { await loadAutoApprove() }
+        .confirmationDialog("开启自动审批？", isPresented: $confirmsAutoApprove, titleVisibility: .visible) {
+            Button("开启") { Task { await updateAutoApprove(true) } }
+        } message: {
+            Text("此会话后续可批准的命令请求会自动获得一次性批准。已待处理的请求仍需手动处理。")
+        }
+    }
+
+    private func loadAutoApprove() async {
+        guard !updatingApproval else { return }
+        guard approvalAvailable, let remote = store.remote else {
+            autoApprove = nil
+            return
+        }
+        let enabled = try? await remote.autoApprove(for: sessionID)
+        if !Task.isCancelled && approvalAvailable && !updatingApproval { autoApprove = enabled }
+    }
+
+    private func updateAutoApprove(_ enabled: Bool) async {
+        guard approvalAvailable, !updatingApproval, let remote = store.remote else { return }
+        let current = store.generation
+        updatingApproval = true
+        defer { updatingApproval = false }
+        do {
+            let result = try await remote.autoApprove(for: sessionID, enabled: enabled)
+            if current == store.generation { autoApprove = result }
+        } catch {
+            let confirmed = try? await remote.autoApprove(for: sessionID)
+            guard current == store.generation else { return }
+            autoApprove = confirmed
+            store.error = error.localizedDescription
+        }
     }
 
     private func sessionHeading(_ session: AgentSession) -> some View {
@@ -109,6 +150,18 @@ struct SessionDetailView: View {
                     .foregroundStyle(palette.muted)
             }
             StatusLabel(status: session.status, palette: palette)
+            if approvalAvailable {
+                if let autoApprove {
+                    Toggle("自动审批", isOn: Binding(get: { autoApprove }, set: { enabled in
+                        if enabled { confirmsAutoApprove = true }
+                        else { Task { await updateAutoApprove(false) } }
+                    }))
+                    .disabled(updatingApproval)
+                } else {
+                    Button("查询自动审批状态") { Task { await loadAutoApprove() } }
+                        .disabled(updatingApproval)
+                }
+            }
         }
         .padding(.vertical, 12)
     }

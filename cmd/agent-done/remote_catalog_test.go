@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"testing"
 	"time"
 
@@ -17,9 +16,6 @@ import (
 )
 
 func TestRemoteCatalogListsLiveSessionsAndReadsTheirHistory(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("workstation identity uses Linux /proc")
-	}
 	pid := os.Getpid()
 	start := startTicks(pid)
 	active := View{Identity: Identity{PID: pid, StartTicks: start, OwnerPID: pid, OwnerStart: start}, Active: true}
@@ -34,7 +30,7 @@ func TestRemoteCatalogListsLiveSessionsAndReadsTheirHistory(t *testing.T) {
 		{ID: "private", CWD: "/workspace/one", Views: []View{stale}},
 		{ID: "archived", CWD: "/workspace/two"},
 	}}
-	shortDir, err := os.MkdirTemp("", "ad-catalog-")
+	shortDir, err := os.MkdirTemp("/tmp", "ad-catalog-")
 	if err != nil {
 		t.Fatal(err)
 	}

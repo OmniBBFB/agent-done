@@ -16,9 +16,10 @@ import (
 )
 
 type codexCatalog struct {
-	socket   string
-	control  bool
-	snapshot func() (*Snapshot, error)
+	socket        string
+	control       bool
+	snapshot      func() (*Snapshot, error)
+	createSession func(context.Context) (string, error)
 }
 
 func liveSession(session Session) bool {
@@ -73,6 +74,10 @@ func (c codexCatalog) connect(ctx context.Context) (*codexRPC, error) {
 	return client, nil
 }
 
+type codexRPCRejection string
+
+func (r codexRPCRejection) Error() string { return "Codex rejected " + string(r) }
+
 func (c *codexRPC) call(method string, params any, result any) error {
 	c.next++
 	id := c.next
@@ -95,7 +100,7 @@ func (c *codexRPC) call(method string, params any, result any) error {
 			continue
 		}
 		if len(message.Error) != 0 {
-			return errors.New("local Codex rejected the read request")
+			return codexRPCRejection(method)
 		}
 		return json.Unmarshal(message.Result, result)
 	}
@@ -137,9 +142,11 @@ func (c codexCatalog) Sessions(_ context.Context, cursor string, limit int) (rem
 			state = "running"
 		}
 		title, _ := clipText(sessionTitle(session), 512)
+		cwd, _ := clipText(session.CWD, 4096)
+		controllable := c.control && messageConnection(session) != ""
 		page.Items = append(page.Items, remote.Session{
-			ID: session.ID, Title: title, State: state, Updated: int64(session.Updated * 1000),
-			CanSendMessage: c.control && messageConnection(session) != "",
+			ID: session.ID, Title: title, CWD: cwd, State: state, Updated: int64(session.Updated * 1000),
+			CanSendMessage: controllable, CanAutoApprove: c.control && len(controlConnections(session)) != 0,
 		})
 	}
 	return page, nil
@@ -199,10 +206,24 @@ func (c codexCatalog) History(ctx context.Context, sessionID, cursor string, lim
 	if err != nil {
 		return page, err
 	}
-	if !slices.ContainsFunc(snapshot.Sessions, func(session Session) bool {
+	index := slices.IndexFunc(snapshot.Sessions, func(session Session) bool {
 		return session.ID == sessionID && liveSession(session)
-	}) {
+	})
+	if index < 0 {
 		return page, &remote.Problem{Code: "forbidden"}
+	}
+	for _, connection := range controlConnections(snapshot.Sessions[index]) {
+		result, err := callProxy(ctx, connection, proxyRequest{
+			Operation: "history", Session: sessionID, Cursor: cursor, Limit: limit,
+		})
+		if result.History != nil {
+			return *result.History, nil
+		}
+		// Older desktop proxies reject this operation. Keep their existing
+		// history path through the shared daemon.
+		if result.Problem != nil && result.Problem.Code != "invalid_request" {
+			return page, err
+		}
 	}
 	client, err := c.connect(ctx)
 	if err != nil {

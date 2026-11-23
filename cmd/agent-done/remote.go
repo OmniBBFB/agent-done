@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,6 +25,10 @@ func (s *Service) serveRemote(ctx context.Context) {
 		return
 	}
 	if err == nil {
+		var managed sync.WaitGroup
+		lifetime, cancel := context.WithCancel(ctx)
+		defer managed.Wait()
+		defer cancel()
 		catalog := codexCatalog{socket: codexSocket(), snapshot: s.remoteSnapshot}
 		readOnly := remote.Handler{Catalog: catalog}
 		ledger, ledgerErr := remote.OpenLedger(s.state.db)
@@ -31,6 +36,9 @@ func (s *Service) serveRemote(ctx context.Context) {
 			log.Printf("remote control unavailable: %v", ledgerErr)
 		}
 		catalog.control = ledgerErr == nil
+		catalog.createSession = func(requestCtx context.Context) (string, error) {
+			return s.createManagedSession(requestCtx, lifetime, &managed, catalog)
+		}
 		controller := remote.Handler{Catalog: catalog, Controls: catalog, Ledger: ledger}
 		err = remote.Serve(ctx, config, func(ctx context.Context, peer string, clear json.RawMessage) []byte {
 			if ledgerErr == nil && slices.Contains(config.ControlPeers, peer) {

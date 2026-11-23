@@ -56,9 +56,11 @@ type Page[T any] struct {
 type Session struct {
 	ID             string `json:"session_id"`
 	Title          string `json:"title"`
+	CWD            string `json:"cwd,omitempty"`
 	State          string `json:"state"`
 	Updated        int64  `json:"updated_at_ms"`
 	CanSendMessage bool   `json:"can_send_message,omitempty"`
+	CanAutoApprove bool   `json:"can_auto_approve,omitempty"`
 }
 
 type HistoryItem struct {
@@ -128,7 +130,23 @@ func (h Handler) dispatch(ctx context.Context, peer, method string, params json.
 		page, err := h.Catalog.History(ctx, q.SID, q.Cursor, q.limit())
 		return page, catalogProblem(err)
 
-	case "interaction.respond", "interaction.status", "messages.send", "messages.status":
+	case "workstation.capabilities":
+		return map[string]bool{"can_create_session": h.Controls != nil && h.Ledger != nil}, nil
+
+	case "sessions.auto_approve.get":
+		if h.Controls == nil || h.Ledger == nil {
+			return nil, &Problem{Code: "unavailable", Reason: "control_not_enabled"}
+		}
+		var input struct {
+			Session string `json:"session_id"`
+		}
+		if json.Unmarshal(params, &input) != nil || input.Session == "" || len(input.Session) > 256 {
+			return nil, &Problem{Code: "invalid_request"}
+		}
+		enabled, err := h.Controls.AutoApprove(ctx, input.Session, nil)
+		return map[string]any{"session_id": input.Session, "enabled": enabled}, catalogProblem(err)
+
+	case "interaction.respond", "interaction.status", "messages.send", "messages.status", "sessions.create", "sessions.create.status", "sessions.auto_approve.set":
 		if h.Controls == nil || h.Ledger == nil {
 			return nil, &Problem{Code: "unavailable", Reason: "control_not_enabled"}
 		}
