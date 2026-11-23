@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -244,13 +245,13 @@ func (o *Observer) observe(raw []byte, fromClient bool) []byte {
 	return raw
 }
 
-func proxyConnection(ctx context.Context, client *websocket.Conn, observer *Observer) {
+func proxyConnection(ctx context.Context, client *websocket.Conn, socket string, observer *Observer) {
 	defer client.Close()
 	defer observer.emit(Request{Op: "unbind", Connection: observer.connection})
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 5 * time.Second,
 		NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", codexSocket())
+			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 		},
 	}
 	upstream, response, err := dialer.DialContext(ctx, "ws://localhost/", nil)
@@ -329,6 +330,9 @@ func ensureService(ctx context.Context) error {
 		}
 		defer output.Close()
 		cmd := exec.Command(executable(), "serve")
+		cmd.Env = slices.DeleteFunc(cmd.Environ(), func(value string) bool {
+			return strings.HasPrefix(value, "OPENAI_API_KEY=")
+		})
 		cmd.Stdout, cmd.Stderr = output, output
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		if err := cmd.Start(); err != nil {
@@ -399,9 +403,61 @@ func runChild(cmd *exec.Cmd, onStart func(int)) (int, error) {
 	return 1, err
 }
 
+func startPrivateCodexServer(ctx context.Context, path, socket string, args []string) (func(), error) {
+	serverArgs := []string{"app-server", "--listen", "unix://" + socket}
+	for len(args) >= 2 && args[0] == "-c" {
+		serverArgs = append(serverArgs, args[:2]...)
+		args = args[2:]
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	cmd := exec.CommandContext(ctx, path, serverArgs...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return nil, err
+	}
+	done := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = cmd.Wait()
+		close(done)
+	}()
+	stop := func() { cancel(); <-done }
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	timer := time.NewTimer(15 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			stop()
+			return nil, ctx.Err()
+		case <-done:
+			cancel()
+			if waitErr != nil {
+				return nil, fmt.Errorf("独立 Codex app-server 启动失败: %w", waitErr)
+			}
+			return nil, errors.New("独立 Codex app-server 启动时已退出")
+		case <-timer.C:
+			stop()
+			return nil, errors.New("等待独立 Codex app-server 启动超时")
+		case <-ticker.C:
+			if exists(socket) {
+				return stop, nil
+			}
+		}
+	}
+}
+
 func launchCodex(args []string) (int, error) {
 	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGHUP)
 	defer stopSignals()
+	privateServer := len(args) > 0 && args[0] == "--private-server"
+	if privateServer {
+		args = args[1:]
+	}
 	path, err := exec.LookPath("codex")
 	if err != nil {
 		return 1, errors.New("PATH 中没有 codex")
@@ -430,9 +486,12 @@ func launchCodex(args []string) (int, error) {
 		}
 	} else {
 		fmt.Fprintf(os.Stderr, "agent-done：提醒暂不可用（%v），继续启动 Codex。\n", serviceErr)
-		return runChild(exec.CommandContext(ctx, path, args...), nil)
+		if !privateServer {
+			return runChild(exec.CommandContext(ctx, path, args...), nil)
+		}
 	}
-	if !exists(codexSocket()) {
+	upstream := codexSocket()
+	if !privateServer && !exists(upstream) {
 		cmd := exec.CommandContext(ctx, path, "app-server", "daemon", "start")
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -447,6 +506,17 @@ func launchCodex(args []string) (int, error) {
 		return 1, err
 	}
 	defer os.RemoveAll(dir)
+	if privateServer {
+		upstream = filepath.Join(dir, "server.sock")
+		stop, err := startPrivateCodexServer(ctx, path, upstream, args)
+		if err != nil {
+			return 1, err
+		}
+		defer stop()
+		if serviceErr != nil {
+			return runChild(exec.CommandContext(ctx, path, append([]string{"--remote", "unix://" + upstream}, args...)...), nil)
+		}
+	}
 	socket := filepath.Join(dir, "proxy.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
@@ -495,7 +565,7 @@ func launchCodex(args []string) (int, error) {
 		}
 		client, err := upgrader.Upgrade(w, r, nil)
 		if err == nil {
-			proxyConnection(ctx, client, newObserver(identity, emit))
+			proxyConnection(ctx, client, upstream, newObserver(identity, emit))
 		}
 	})}
 	go server.Serve(listener)

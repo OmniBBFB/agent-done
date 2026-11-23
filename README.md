@@ -63,7 +63,7 @@ agent-done codex
 ## 支持范围
 
 - 桌面集成面向本机 Linux 和 niri，已验证 Kitty 与 Alacritty。每个会话请使用独立的终端窗口。跳转按 niri 窗口定位，同一窗口内的标签页和分屏共用窗口身份。
-- 启动器默认使用运行 Codex 的主机上的共享 daemon。包装入口拒绝 `--remote` 和 `--no-daemon`。没有关联窗口时，会话仍可跟踪，窗口定位和跳转不可用。 [SSH 会话与断线行为](docs/remote-relay.md#ssh-会话)
+- 启动器默认使用运行 Codex 的主机上的共享 daemon。包装入口拒绝 `--remote` 和 `--no-daemon`。没有关联窗口时，会话仍可跟踪，窗口定位和跳转不可用。 [SSH 会话与断线行为](docs/remote-relay.md#ssh-会话) · [独立 app-server 的适用范围](docs/go.md#独立-codex-app-server)
 - 仓库提供 iOS 17+ 的原生客户端和自托管中转。iPhone 可在演示模式试用界面。配对在线工作站后，可以查看受跟踪的会话和文本历史。获得控制权限的手机还可处理支持的审批与提问，并在支持继续会话的工作站上给空闲会话发送补充指令。 [iOS 客户端](docs/ios.md) · [工作站与中转](docs/remote-relay.md#配置工作站)
 
 桌面服务把提醒状态、会话标题和工作目录保存在本机 SQLite，默认位于 `~/.local/state/agent-done/state.sqlite3`。
