@@ -281,9 +281,13 @@ func (s *Service) prune(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		s.mu.Lock()
-		if err := s.state.prune(); err != nil {
+		changed, err := s.state.prune()
+		if err != nil {
 			log.Print(err)
 		} else if snapshot, err := s.state.snapshot(); err == nil {
+			if changed {
+				s.notifyRemote()
+			}
 			s.publish(snapshot)
 		} else {
 			log.Print(err)

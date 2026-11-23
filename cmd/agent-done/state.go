@@ -381,7 +381,7 @@ func (s *State) observe(desktop Observation) error {
 		windows[window.ID] = window
 	}
 	err := withTransaction(s.db, func(tx *sql.Tx) error {
-		rows, err := tx.Query("SELECT connection,window_id,window_pid,window_start FROM views WHERE backend='niri' AND active=1")
+		rows, err := tx.Query("SELECT connection,window_id,window_pid,window_start FROM views WHERE backend='niri' AND active=1 AND window_id IS NOT NULL")
 		if err != nil {
 			return err
 		}
@@ -404,7 +404,7 @@ func (s *State) observe(desktop Observation) error {
 		}
 		rows.Close()
 		for conn := range stale {
-			if err := unbind(tx, conn); err != nil {
+			if err := execSQL(tx, "UPDATE views SET window_id=NULL,window_pid=NULL,window_start=NULL WHERE connection=?", conn); err != nil {
 				return err
 			}
 		}
@@ -428,8 +428,9 @@ func (s *State) disconnect(err error) {
 	s.connected, s.desktopError, s.desktop.Focused = false, err.Error(), nil
 }
 
-func (s *State) prune() error {
-	return withTransaction(s.db, func(tx *sql.Tx) error {
+func (s *State) prune() (bool, error) {
+	var changed bool
+	err := withTransaction(s.db, func(tx *sql.Tx) error {
 		rows, err := tx.Query("SELECT DISTINCT connection,COALESCE(pid,0),COALESCE(start_ticks,''),COALESCE(owner_pid,0),COALESCE(owner_start_ticks,'') FROM views")
 		if err != nil {
 			return err
@@ -455,8 +456,10 @@ func (s *State) prune() error {
 				return err
 			}
 		}
+		changed = len(stale) != 0
 		return nil
 	})
+	return changed, err
 }
 
 func (s *State) snapshot() (*Snapshot, error) {

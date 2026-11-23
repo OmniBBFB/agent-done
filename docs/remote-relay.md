@@ -63,3 +63,9 @@ iPhone 和已配对工作站通过同一中转服务通信。中转可部署在�
 工作站验证原请求和手机意图后交给 Codex。命令审批只提交一次性决定。命令缺少完整明细、涉及网络授权或工作站未取得文件变更明细时，界面只提供可用的拒绝操作。异步问题、密项和权限变更在桌面处理。手机发起新回合后，Codex 继续使用会话已有的沙箱和审批策略。
 
 工作站将幂等记录保存在 Agent Done 状态数据库。记录包含请求摘要和处置状态。中途断线且无法确认结果时，客户端可查询该状态，工作站按同一幂等键保留原记录。协议字段和状态定义见 [控制协议 v1](../protocol/control-v1.md)。
+
+### SSH 会话
+
+SSH 登录工作站后直接运行 `agent-done codex`。应用可以查看和控制仍经过代理的会话，沿用工作站配置的配对与控制权限。没有关联的 niri 窗口时，Waybar 仍会显示提醒，窗口定位、跳转和聚焦确认不可用。
+
+客户端合盖休眠或掉网后，服务端可能需要一段时间才能检测到断线。普通 SSH 的伪终端挂断后，Agent Done 结束该 TUI 和它的代理连接，App 对该连接的实时控制随之关闭。共享的 Agent Done 服务和 Codex daemon 由各自的后台生命周期管理。重新登录后可用 `agent-done codex resume <会话 ID>` 恢复。需要在 SSH 断开后继续由 App 控制时，可以预先在工作站的 tmux 会话里启动 `agent-done codex`，由 tmux 保留 TUI 和代理。 [OpenSSH 服务端断线检测](https://man.openbsd.org/sshd_config#ClientAliveInterval)

@@ -176,6 +176,9 @@ func renderWaybar(s *Snapshot) WaybarUpdate {
 		lines = append(lines, title+" — "+reason)
 		for _, view := range session.Views {
 			location := "位置待更新"
+			if view.WindowID == nil {
+				location = "无关联窗口"
+			}
 			if position := view.Position; position != nil {
 				output := position.Output
 				if output == "" {
@@ -236,7 +239,7 @@ func streamSnapshots(ctx context.Context, emit func(WaybarUpdate) error) error {
 func waybar(ctx context.Context) error {
 	emit := json.NewEncoder(os.Stdout).Encode
 	for ctx.Err() == nil {
-		if err := ensureService(); err == nil {
+		if err := ensureService(ctx); err == nil {
 			if err := streamSnapshots(ctx, func(u WaybarUpdate) error { return emit(u) }); errors.Is(err, syscall.EPIPE) {
 				return nil
 			}

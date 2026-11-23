@@ -2,9 +2,55 @@ package main
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestLiveSessionWithoutDesktopWindow(t *testing.T) {
+	for _, hadWindow := range []bool{false, true} {
+		name := "without-window"
+		if hadWindow {
+			name = "window-disappears"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, err := openState(filepath.Join(t.TempDir(), "state.sqlite3"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.db.Close()
+			pid := os.Getpid()
+			identity := Identity{PID: pid, StartTicks: startTicks(pid)}
+			if hadWindow {
+				window := int64(42)
+				identity.WindowID = &window
+			}
+			applyEvent(t, s, Request{Op: "bind", Connection: "tui", Session: "chat", Identity: &identity})
+			applyEvent(t, s, Request{Op: "running", Session: "chat", Turn: "turn"})
+			applyEvent(t, s, Request{Op: "request_open", Session: "chat", Connection: "tui", Key: "request", Kind: "question", Turn: "turn"})
+			if err := s.observe(Observation{Backend: "niri"}); err != nil {
+				t.Fatal(err)
+			}
+			row := readSession(t, s)
+			if !liveSession(row) || !row.Pending || row.Phase != "question" || row.Views[0].WindowID != nil {
+				t.Fatalf("window update affected the live session: %+v", row)
+			}
+			if changed, err := s.prune(); changed || err != nil {
+				t.Fatalf("prune live session: changed=%v, err=%v", changed, err)
+			}
+			if _, err := s.db.Exec("UPDATE views SET owner_start_ticks='stale'"); err != nil {
+				t.Fatal(err)
+			}
+			if changed, err := s.prune(); !changed || err != nil {
+				t.Fatalf("prune stale session: changed=%v, err=%v", changed, err)
+			}
+			snapshot, err := s.snapshot()
+			if err != nil || len(snapshot.Sessions) != 0 || snapshot.PendingCount != 0 {
+				t.Fatalf("stale session remained visible: %+v, err=%v", snapshot, err)
+			}
+		})
+	}
+}
 
 func applyEvent(t *testing.T, s *State, r Request) {
 	t.Helper()

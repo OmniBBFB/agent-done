@@ -310,13 +310,13 @@ func proxyConnection(ctx context.Context, client *websocket.Conn, observer *Obse
 	group.Wait()
 }
 
-func ensureService() error {
+func ensureService(ctx context.Context) error {
 	if _, err := localRequest(Request{Op: "status"}, 300*time.Millisecond); err == nil {
 		return nil
 	}
 	unit := filepath.Join(homeDir(), ".config", "systemd", "user", "agent-done.service")
 	if exists(unit) && os.Getenv("AGENT_DONE_STATE_DIR") == "" && os.Getenv("AGENT_DONE_RUNTIME_DIR") == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		exec.CommandContext(ctx, "systemctl", "--user", "start", "agent-done.service").Run()
 	} else {
@@ -340,7 +340,11 @@ func ensureService() error {
 		if _, err := localRequest(Request{Op: "status"}, 300*time.Millisecond); err == nil {
 			return nil
 		}
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 	return errors.New("提醒服务未能启动")
 }
@@ -367,42 +371,37 @@ func codexArgs(args []string, remote, cwd, command string) []string {
 }
 
 func runChild(cmd *exec.Cmd, onStart func(int)) (int, error) {
-	sigs := make(chan os.Signal, 8)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	// The terminal sends SIGINT to both members of the foreground group.
+	// Codex handles it as an interactive interrupt.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt)
 	defer signal.Stop(sigs)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Start(); err != nil {
 		return 1, err
 	}
 	if onStart != nil {
 		onStart(cmd.Process.Pid)
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	for {
-		select {
-		case sig := <-sigs:
-			// The terminal sends SIGINT to both members of the foreground group.
-			if sig != os.Interrupt {
-				cmd.Process.Signal(syscall.SIGTERM)
-			}
-		case err := <-done:
-			if err == nil {
-				return 0, nil
-			}
-			var exit *exec.ExitError
-			if errors.As(err, &exit) {
-				if result, ok := exit.Sys().(syscall.WaitStatus); ok && result.Signaled() {
-					return 128 + int(result.Signal()), nil
-				}
-				return exit.ExitCode(), nil
-			}
-			return 1, err
-		}
+	err := cmd.Wait()
+	if err == nil {
+		return 0, nil
 	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		if result, ok := exit.Sys().(syscall.WaitStatus); ok && result.Signaled() {
+			return 128 + int(result.Signal()), nil
+		}
+		return exit.ExitCode(), nil
+	}
+	return 1, err
 }
 
 func launchCodex(args []string) (int, error) {
+	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGHUP)
+	defer stopSignals()
 	path, err := exec.LookPath("codex")
 	if err != nil {
 		return 1, errors.New("PATH 中没有 codex")
@@ -413,7 +412,7 @@ func launchCodex(args []string) (int, error) {
 		}
 		switch arg {
 		case "--help", "-h", "--version", "-V":
-			return runChild(exec.Command(path, args...), nil)
+			return runChild(exec.CommandContext(ctx, path, args...), nil)
 		case "--no-daemon", "--remote":
 			return 1, errors.New("此入口管理本机 daemon 连接，请移除 --remote / --no-daemon")
 		}
@@ -422,19 +421,19 @@ func launchCodex(args []string) (int, error) {
 		}
 	}
 	owner := os.Getpid()
-	var response Response
-	if err = ensureService(); err == nil {
-		response, err = localRequest(Request{Op: "identify", PID: owner}, 15*time.Second)
-	}
-	if err == nil && response.Identity == nil {
-		err = errors.New("提醒服务未返回源窗口")
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "agent-done：提醒暂不可用（%v），继续启动 Codex。\n", err)
-		return runChild(exec.Command(path, args...), nil)
+	serviceErr := ensureService(ctx)
+	var window Identity
+	if serviceErr == nil {
+		response, err := localRequest(Request{Op: "identify", PID: owner}, 15*time.Second)
+		if err == nil && response.Identity != nil {
+			window = *response.Identity
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "agent-done：提醒暂不可用（%v），继续启动 Codex。\n", serviceErr)
+		return runChild(exec.CommandContext(ctx, path, args...), nil)
 	}
 	if !exists(codexSocket()) {
-		cmd := exec.Command(path, "app-server", "daemon", "start")
+		cmd := exec.CommandContext(ctx, path, "app-server", "daemon", "start")
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
 			return 1, fmt.Errorf("无法启动 Codex daemon: %w", err)
@@ -457,7 +456,7 @@ func launchCodex(args []string) (int, error) {
 	if err := os.Chmod(socket, 0600); err != nil {
 		return 1, err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var warn sync.Once
 	emit := func(r Request) {
@@ -469,7 +468,7 @@ func launchCodex(args []string) (int, error) {
 	started := make(chan struct{})
 	ownerStart := startTicks(owner)
 	identity := func() Identity {
-		id := *response.Identity
+		id := window
 		id.PID = codexPID(childPID)
 		id.StartTicks = startTicks(id.PID)
 		id.OwnerPID, id.OwnerStart = owner, ownerStart
@@ -502,7 +501,7 @@ func launchCodex(args []string) (int, error) {
 	go server.Serve(listener)
 	cwd, err := os.Getwd()
 	if err == nil {
-		code, childErr := runChild(exec.Command(path, codexArgs(args, socket, cwd, hookCommand())...), func(pid int) { childPID = pid; close(started) })
+		code, childErr := runChild(exec.CommandContext(ctx, path, codexArgs(args, socket, cwd, hookCommand())...), func(pid int) { childPID = pid; close(started) })
 		handlerMu.Lock()
 		shutdown = true
 		handlerMu.Unlock()

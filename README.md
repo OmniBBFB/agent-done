@@ -54,7 +54,7 @@ agent-done codex
 | 手动清除提醒 | `agent-done ack` 或 `agent-done ack --session <会话 ID>` |
 | 检查服务及 niri 连接 | `agent-done doctor` |
 
-通过 `agent-done codex` 启动或恢复的会话才会登记。已有的普通 Codex 会话可以先退出，再用上表命令恢复。已聚焦的会话收到事件时视为已查看。跳转成功后，实际聚焦窗口才会清除提醒。授权请求和问题仍需你在 Codex 中处理。
+通过 `agent-done codex` 启动或恢复的会话才会登记，SSH 登录后也可以使用这个入口。已有的普通 Codex 会话可以先退出，再用上表命令恢复。有关联窗口的会话在窗口聚焦时自动清除提醒。无关联窗口的会话仍计入提醒，可以用 `agent-done ack --session <会话 ID>` 确认。
 
 如果启动时提示提醒不可用，Codex 会照常启动。可用 `journalctl --user -u agent-done.service` 查看服务日志，修复后用包装命令重新启动或恢复该会话。
 
@@ -63,7 +63,7 @@ agent-done codex
 ## 支持范围
 
 - 桌面集成面向本机 Linux 和 niri，已验证 Kitty 与 Alacritty。每个会话请使用独立的终端窗口。跳转按 niri 窗口定位，同一窗口内的标签页和分屏共用窗口身份。
-- 启动器使用本机 Codex daemon，要求可识别的 niri 窗口。SSH 登录端的 Codex 当前不会被跟踪，`--remote` 和 `--no-daemon` 也不适用于包装入口。
+- 启动器默认使用运行 Codex 的主机上的共享 daemon。包装入口拒绝 `--remote` 和 `--no-daemon`。没有关联窗口时，会话仍可跟踪，窗口定位和跳转不可用。 [SSH 会话与断线行为](docs/remote-relay.md#ssh-会话)
 - 仓库提供 iOS 17+ 的原生客户端和自托管中转。iPhone 可在演示模式试用界面。配对在线工作站后，可以查看受跟踪的会话和文本历史。获得控制权限的手机还可处理支持的审批与提问，并在支持继续会话的工作站上给空闲会话发送补充指令。 [iOS 客户端](docs/ios.md) · [工作站与中转](docs/remote-relay.md#配置工作站)
 
 桌面服务把提醒状态、会话标题和工作目录保存在本机 SQLite，默认位于 `~/.local/state/agent-done/state.sqlite3`。
