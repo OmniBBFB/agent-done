@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -316,7 +317,7 @@ func ensureService(ctx context.Context) error {
 		return nil
 	}
 	unit := filepath.Join(homeDir(), ".config", "systemd", "user", "agent-done.service")
-	if exists(unit) && os.Getenv("AGENT_DONE_STATE_DIR") == "" && os.Getenv("AGENT_DONE_RUNTIME_DIR") == "" {
+	if runtime.GOOS == "linux" && exists(unit) && os.Getenv("AGENT_DONE_STATE_DIR") == "" && os.Getenv("AGENT_DONE_RUNTIME_DIR") == "" {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		exec.CommandContext(ctx, "systemctl", "--user", "start", "agent-done.service").Run()

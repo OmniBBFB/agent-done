@@ -23,7 +23,7 @@ type State struct {
 	desktopError string
 }
 
-func openState(path string) (*State, error) {
+func openState(path, backend string) (*State, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		return nil, err
@@ -62,14 +62,15 @@ func openState(path string) (*State, error) {
 					}
 				}
 			}
-			return execSQL(tx, "UPDATE views SET active=0 WHERE backend!='niri'")
+			// Native AX window IDs refer to objects retained by the current service.
+			return execSQL(tx, "UPDATE views SET window_id=NULL,window_pid=NULL,window_start=NULL WHERE backend!=? OR backend='macos'", backend)
 		})
 	}
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
-	return &State{db: db, desktop: Observation{Backend: "niri"}, windows: make(map[int64]Window)}, nil
+	return &State{db: db, desktop: Observation{Backend: backend}, windows: make(map[int64]Window)}, nil
 }
 
 func withTransaction(db *sql.DB, operation func(*sql.Tx) error) error {
@@ -96,7 +97,7 @@ func (s *State) visible(tx *sql.Tx, sid string) (bool, error) {
 		return false, nil
 	}
 	var visible bool
-	err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM views WHERE session=? AND active=1 AND window_id=? AND backend='niri')", sid, *s.desktop.Focused).Scan(&visible)
+	err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM views WHERE session=? AND active=1 AND window_id=? AND backend=?)", sid, *s.desktop.Focused, s.desktop.Backend).Scan(&visible)
 	return visible, err
 }
 
@@ -183,7 +184,7 @@ func (s *State) bind(tx *sql.Tx, r Request) error {
 		return errors.New("invalid bind request")
 	}
 	id := *r.Identity
-	if id.Backend != "" && id.Backend != "niri" {
+	if id.Backend != "" && id.Backend != s.desktop.Backend {
 		return errors.New("绑定来源与服务桌面后端不一致")
 	}
 	if id.OwnerPID == 0 {
@@ -199,10 +200,10 @@ func (s *State) bind(tx *sql.Tx, r Request) error {
 		return err
 	}
 	if err := execSQL(tx, `INSERT INTO views(connection,session,window_id,pid,start_ticks,owner_pid,owner_start_ticks,active,backend,window_pid,window_start)
-		VALUES (?,?,?,?,?,?,?,1,'niri',NULLIF(?,0),NULLIF(?,'')) ON CONFLICT(connection,session) DO UPDATE SET
+		VALUES (?,?,?,?,?,?,?,1,?,NULLIF(?,0),NULLIF(?,'')) ON CONFLICT(connection,session) DO UPDATE SET
 		window_id=excluded.window_id,pid=excluded.pid,start_ticks=excluded.start_ticks,owner_pid=excluded.owner_pid,
-		owner_start_ticks=excluded.owner_start_ticks,active=1,backend='niri',window_pid=excluded.window_pid,window_start=excluded.window_start`,
-		r.Connection, r.Session, id.WindowID, id.PID, id.StartTicks, id.OwnerPID, id.OwnerStart, id.WindowPID, id.WindowStart); err != nil {
+		owner_start_ticks=excluded.owner_start_ticks,active=1,backend=excluded.backend,window_pid=excluded.window_pid,window_start=excluded.window_start`,
+		r.Connection, r.Session, id.WindowID, id.PID, id.StartTicks, id.OwnerPID, id.OwnerStart, s.desktop.Backend, id.WindowPID, id.WindowStart); err != nil {
 		return err
 	}
 	visible, err := s.visible(tx, r.Session)
@@ -381,7 +382,7 @@ func (s *State) observe(desktop Observation) error {
 		windows[window.ID] = window
 	}
 	err := withTransaction(s.db, func(tx *sql.Tx) error {
-		rows, err := tx.Query("SELECT connection,window_id,window_pid,window_start FROM views WHERE backend='niri' AND active=1 AND window_id IS NOT NULL")
+		rows, err := tx.Query("SELECT connection,window_id,window_pid,window_start FROM views WHERE backend=? AND active=1 AND window_id IS NOT NULL", desktop.Backend)
 		if err != nil {
 			return err
 		}
@@ -409,11 +410,11 @@ func (s *State) observe(desktop Observation) error {
 			}
 		}
 		if desktop.Focused != nil {
-			const visible = " IN (SELECT session FROM views WHERE window_id=? AND backend='niri' AND active=1)"
-			if err := execSQL(tx, "UPDATE sessions SET pending=0 WHERE id"+visible, *desktop.Focused); err != nil {
+			const visible = " IN (SELECT session FROM views WHERE window_id=? AND backend=? AND active=1)"
+			if err := execSQL(tx, "UPDATE sessions SET pending=0 WHERE id"+visible, *desktop.Focused, desktop.Backend); err != nil {
 				return err
 			}
-			return execSQL(tx, "UPDATE requests SET unread=0 WHERE session"+visible, *desktop.Focused)
+			return execSQL(tx, "UPDATE requests SET unread=0 WHERE session"+visible, *desktop.Focused, desktop.Backend)
 		}
 		return nil
 	})
@@ -464,8 +465,8 @@ func (s *State) prune() (bool, error) {
 
 func (s *State) snapshot() (*Snapshot, error) {
 	result := &Snapshot{
-		Sessions: []Session{}, DesktopBackend: "niri", DesktopConnected: s.connected,
-		DesktopError: s.desktopError, NiriConnected: s.connected, FocusedWindow: s.desktop.Focused,
+		Sessions: []Session{}, DesktopBackend: s.desktop.Backend, DesktopConnected: s.connected,
+		DesktopError: s.desktopError, NiriConnected: s.connected && s.desktop.Backend == "niri", FocusedWindow: s.desktop.Focused,
 	}
 	rows, err := s.db.Query("SELECT id,title,cwd,phase,turn_id,pending,reason,updated FROM sessions WHERE id IN (SELECT session FROM views) ORDER BY updated DESC")
 	if err != nil {
@@ -503,7 +504,7 @@ func (s *State) snapshot() (*Snapshot, error) {
 		if err != nil {
 			return nil, err
 		}
-		if view.Backend == "niri" && view.WindowID != nil {
+		if view.Backend == s.desktop.Backend && view.WindowID != nil {
 			view.Position = s.windows[*view.WindowID].Position
 		}
 		if index, ok := byID[view.Session]; ok {

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -107,7 +108,7 @@ func jump() error {
 		}
 		views := make([]View, 0, len(session.Views))
 		for _, view := range session.Views {
-			if !view.Active || view.Backend != "niri" || view.WindowID == nil ||
+			if !view.Active || view.Backend != response.Snapshot.DesktopBackend || view.WindowID == nil ||
 				!sameProcess(view.PID, view.StartTicks) || !sameProcess(view.OwnerPID, view.OwnerStart) {
 				continue
 			}
@@ -115,7 +116,7 @@ func jump() error {
 		}
 		sort.Slice(views, func(i, j int) bool { return *views[i].WindowID < *views[j].WindowID })
 		for _, view := range views {
-			result, err := localRequest(Request{Op: "focus", Backend: "niri", WindowID: view.WindowID,
+			result, err := localRequest(Request{Op: "focus", Backend: view.Backend, WindowID: view.WindowID,
 				WindowPID: view.WindowPID, WindowStart: view.WindowStart}, 15*time.Second)
 			if err != nil {
 				status, queryErr := localRequest(Request{Op: "desktop_status"}, 15*time.Second)
@@ -321,6 +322,10 @@ func main() {
 	case "status", "ack":
 		err = statusAndAck(args[0], args[1:])
 	case "install":
+		if runtime.GOOS != "linux" {
+			err = errors.New("install 用于 Linux/Waybar。macOS 请构建 agent-done 并启动 serve")
+			break
+		}
 		var result map[string]string
 		result, err = install(homeDir(), executable(), stateDir())
 		if err == nil {

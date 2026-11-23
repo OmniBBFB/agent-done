@@ -6,6 +6,8 @@ agent-done 保留你已有的终端工作流。Codex 在后台完成一轮、执
 
 ## 安装与启用
 
+macOS 请参阅 [macOS 安装与桌面接入](docs/macos.md)，可选原生 Accessibility 或 yabai。以下步骤用于 Linux。
+
 需要 Linux 上可用的 niri、Waybar、systemd 用户服务和 Codex CLI。源码构建需要 Go 1.25 或更新版本及 C 编译器。安装器在 `~/.config/waybar/config.jsonc` 或 `~/.config/waybar/config` 查找已有配置。请在 niri 桌面会话的终端中运行。
 
 ### 1. 从源码安装
@@ -52,7 +54,7 @@ agent-done codex
 | 查看会话状态 | `agent-done status` |
 | 跳到最早待查看的会话 | `agent-done jump` |
 | 手动清除提醒 | `agent-done ack` 或 `agent-done ack --session <会话 ID>` |
-| 检查服务及 niri 连接 | `agent-done doctor` |
+| 检查服务及桌面后端连接 | `agent-done doctor` |
 
 通过 `agent-done codex` 启动或恢复的会话才会登记，SSH 登录后也可以使用这个入口。已有的普通 Codex 会话可以先退出，再用上表命令恢复。有关联窗口的会话在窗口聚焦时自动清除提醒。无关联窗口的会话仍计入提醒，可以用 `agent-done ack --session <会话 ID>` 确认。
 
@@ -62,7 +64,7 @@ agent-done codex
 
 ## 支持范围
 
-- 桌面集成面向本机 Linux 和 niri，已验证 Kitty 与 Alacritty。每个会话请使用独立的终端窗口。跳转按 niri 窗口定位，同一窗口内的标签页和分屏共用窗口身份。
+- Linux 支持 niri 和 Waybar，已验证 Kitty 与 Alacritty。macOS 可通过原生 Accessibility 或 yabai 关联窗口和跳转。每个需要独立跳转的会话请使用独立的系统终端窗口。
 - 启动器默认使用运行 Codex 的主机上的共享 daemon。包装入口拒绝 `--remote` 和 `--no-daemon`。没有关联窗口时，会话仍可跟踪，窗口定位和跳转不可用。 [SSH 会话与断线行为](docs/remote-relay.md#ssh-会话) · [独立 app-server 的适用范围](docs/go.md#独立-codex-app-server)
 - 仓库提供 iOS 17+ 的原生客户端和自托管中转。iPhone 可在演示模式试用界面。配对在线工作站后，可以查看受跟踪的会话和文本历史。获得控制权限的手机还可处理支持的审批与提问，并在支持继续会话的工作站上给空闲会话发送补充指令。 [iOS 客户端](docs/ios.md) · [工作站与中转](docs/remote-relay.md#配置工作站)
 

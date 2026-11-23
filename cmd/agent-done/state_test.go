@@ -14,7 +14,7 @@ func TestLiveSessionWithoutDesktopWindow(t *testing.T) {
 			name = "window-disappears"
 		}
 		t.Run(name, func(t *testing.T) {
-			s, err := openState(filepath.Join(t.TempDir(), "state.sqlite3"))
+			s, err := openState(filepath.Join(t.TempDir(), "state.sqlite3"), "niri")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -70,7 +70,7 @@ func readSession(t *testing.T, s *State) Session {
 
 func TestTurnAndFocusLifecycle(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.sqlite3")
-	s, err := openState(path)
+	s, err := openState(path, "niri")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestTurnAndFocusLifecycle(t *testing.T) {
 	if err := s.db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := openState(path)
+	reopened, err := openState(path, "niri")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestPreAdapterSQLiteSchemaAndCompletionReplay(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	state, err := openState(path)
+	state, err := openState(path, "niri")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,5 +151,59 @@ func TestWaybarConfigCanBeInstalledTwice(t *testing.T) {
 	}
 	if string(initial) != string(second) {
 		t.Fatalf("repeated installation changed the config: %s", second)
+	}
+}
+
+func TestMacDesktopFocusAndRestart(t *testing.T) {
+	for _, backend := range []string{"macos", "yabai"} {
+		t.Run(backend, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "state.sqlite3")
+			state, err := openState(path, backend)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer state.db.Close()
+
+			window := Window{ID: 42, PID: 100, Start: "window-start"}
+			other := Window{ID: 43, PID: window.PID, Start: window.Start}
+			pid := os.Getpid()
+			id := Identity{Backend: backend, WindowID: &window.ID, WindowPID: window.PID, WindowStart: window.Start,
+				PID: pid, StartTicks: startTicks(pid)}
+			observe := func(focused int64) {
+				t.Helper()
+				if err := state.observe(Observation{Backend: backend, Windows: []Window{window, other}, Focused: &focused}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			observe(other.ID)
+			applyEvent(t, state, Request{Op: "bind", Connection: "tui", Session: "chat", Identity: &id})
+			applyEvent(t, state, Request{Op: "running", Session: "chat", Turn: "first"})
+			applyEvent(t, state, Request{Op: "request_open", Session: "chat", Connection: "tui", Key: "allow", Kind: "approval", Turn: "first"})
+			observe(other.ID)
+			if !readSession(t, state).Pending {
+				t.Fatal("another window in the same app cleared the reminder")
+			}
+			observe(window.ID)
+			if row := readSession(t, state); row.Pending || row.Phase != "approval" {
+				t.Fatalf("focusing the source window changed more than the reminder: %+v", row)
+			}
+			snapshot, err := state.snapshot()
+			if err != nil || snapshot.NiriConnected || !snapshot.DesktopConnected || snapshot.DesktopBackend != backend {
+				t.Fatalf("unexpected desktop status: %+v, %v", snapshot, err)
+			}
+
+			if err := state.db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := openState(path, backend)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reopened.db.Close()
+			row := readSession(t, reopened)
+			if !liveSession(row) || (row.Views[0].WindowID == nil) != (backend == "macos") {
+				t.Fatalf("unexpected state after restart: %+v", row)
+			}
+		})
 	}
 }

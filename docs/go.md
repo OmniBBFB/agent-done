@@ -1,6 +1,6 @@
 # 开发与迁移
 
-Go 版在 Linux/niri 上提供同名命令，覆盖 Codex 启动和恢复、会话提醒、焦点跳转、Waybar、诊断和安装。旧 Python 运行时与实验性 macOS 适配可从 Git 提交 `10eb90f` 取回。
+Go 版提供 Codex 启动和恢复、会话提醒、焦点跳转和诊断。Linux/niri 支持 Waybar 和安装器。macOS 支持原生 AX 和 yabai。 [macOS 接入](macos.md)
 
 ## 构建与验证
 
@@ -25,8 +25,8 @@ python3 tools/validate_desktop.py --backend niri --terminal kitty \
 ## 进程与数据边界
 
 - `codex` 启动器管理 TUI 子进程的生命周期。每条 Unix WebSocket 代理连接持有自己的 Observer 和请求关联。检测到绑定、回合或请求事件时，把摘要交给本机服务。
-- `serve` 是 SQLite 的所有者。服务串行处理状态更新和快照发布，IPC 保持每行一个 JSON 消息。窗口身份和焦点来自 niri，PID 另核对 `/proc` 启动标识。
-- `jump` 根据待查看状态和更新时间选择候选，服务再次校验窗口身份后请求 niri 聚焦。收到实际焦点观测时才清除提醒，审批或提问仍保持待处理。
+- `serve` 是 SQLite 的所有者。服务串行处理状态更新和快照发布，IPC 保持每行一个 JSON 消息。窗口身份和焦点来自当前桌面后端。Linux 核对 `/proc`，macOS 核对内核进程创建时间。
+- `jump` 根据待查看状态和更新时间选择候选，服务再次校验窗口身份后请求桌面后端聚焦。收到实际焦点观测时才清除提醒，审批或提问仍保持待处理。
 - Waybar 订阅当前快照，连接断开后重试。hook 只提交身份字段并保留短超时。
 
 ## 独立 Codex app-server

@@ -135,36 +135,6 @@ func niriFocus(ctx context.Context, id int64) error {
 	return err
 }
 
-var errSourceWindowNotFound = errors.New("无法从源进程找到终端窗口，请在本机独立终端窗口内运行")
-
-func identifyWindow(observation Observation, pid int) (*Identity, error) {
-	for _, ancestor := range ancestors(pid) {
-		var candidates []Window
-		for _, window := range observation.Windows {
-			if window.PID == ancestor {
-				candidates = append(candidates, window)
-			}
-		}
-		if len(candidates) == 0 {
-			continue
-		}
-		if len(candidates) > 1 {
-			for _, window := range candidates {
-				if observation.Focused != nil && window.ID == *observation.Focused {
-					candidates = []Window{window}
-					break
-				}
-			}
-		}
-		if len(candidates) != 1 || candidates[0].Start == "" {
-			return nil, errors.New("无法唯一识别源终端窗口，请在目标独立窗口中启动")
-		}
-		window := candidates[0]
-		return &Identity{Backend: "niri", WindowID: &window.ID, WindowPID: window.PID, WindowStart: window.Start}, nil
-	}
-	return nil, errSourceWindowNotFound
-}
-
 type niriEvent struct {
 	WindowsChanged *struct {
 		Windows []niriWindow `json:"windows"`
