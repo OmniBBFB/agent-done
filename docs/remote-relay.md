@@ -72,6 +72,6 @@ iPhone 和已配对工作站通过同一中转服务通信。中转可部署在�
 
 ### SSH 会话
 
-SSH 登录工作站后直接运行 `agent-done codex`。应用可以查看和控制仍经过代理的会话，沿用工作站配置的配对与控制权限。没有关联的 niri 窗口时，Waybar 仍会显示提醒，窗口定位、跳转和聚焦确认不可用。
+SSH 登录工作站后直接运行 `agent-done codex`。应用可以查看和控制仍经过代理的会话，沿用工作站配置的配对与控制权限。Waybar 根据启动进程的 SSH 环境识别没有本地窗口的 SSH 会话，并将其计入 `AGENT` 下的 `SSH`。`RUNNING`、`DONE` 和待介入提示只显示本地会话。窗口定位、跳转和聚焦确认需要关联的 niri 窗口。
 
 客户端合盖休眠或掉网后，服务端可能需要一段时间才能检测到断线。普通 SSH 的伪终端挂断后，Agent Done 结束该 TUI 和它的代理连接，App 对该连接的实时控制随之关闭。共享的 Agent Done 服务和 Codex daemon 由各自的后台生命周期管理。重新登录后可用 `agent-done codex resume <会话 ID>` 恢复。需要在 SSH 断开后继续由 App 控制时，可以预先在工作站的 tmux 会话里启动 `agent-done codex`，由 tmux 保留 TUI 和代理。 [OpenSSH 服务端断线检测](https://man.openbsd.org/sshd_config#ClientAliveInterval)

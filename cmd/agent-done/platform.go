@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"os"
@@ -70,6 +71,33 @@ func containsPID(pids []int, candidate int) bool {
 
 func sameProcess(pid int, start string) bool {
 	return pid > 0 && start != "" && startTicks(pid) == start
+}
+
+func isSSHSession(session Session) bool {
+	for _, view := range session.Views {
+		if view.WindowID != nil || !isSSHProcess(view.OwnerPID, view.OwnerStart) {
+			return false
+		}
+	}
+	return len(session.Views) > 0
+}
+
+func isSSHProcess(pid int, start string) bool {
+	if !sameProcess(pid, start) {
+		return false
+	}
+	env, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "environ"))
+	if err != nil {
+		return false
+	}
+	for entry := range bytes.SplitSeq(env, []byte{0}) {
+		for _, key := range []string{"SSH_CONNECTION=", "SSH_CLIENT=", "SSH_TTY="} {
+			if len(entry) > len(key) && bytes.HasPrefix(entry, []byte(key)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func connectionID() string {

@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import select
 import shlex
 import subprocess
@@ -84,7 +85,13 @@ def complete(artifacts, original):
             if not select.select([waybar.stdout], [], [], 5)[0]:
                 raise TimeoutError("Waybar did not receive a snapshot")
             output = json.loads(waybar.stdout.readline())
-            assert output["text"] == "Codex " + str(snapshot["pending_count"])
+            counts = re.fullmatch(r"AGENT: (\d+) \(LOCAL: (\d+), SSH: (\d+)\), RUNNING: (\d+), DONE: (\d+)",
+                                  output["text"])
+            assert counts, output["text"]
+            total, local, ssh, running, pending = map(int, counts.groups())
+            assert total == local + ssh == len(snapshot["sessions"])
+            assert running <= local and 1 <= pending <= local
+            assert "已完成" in output["tooltip"]
         finally:
             waybar.terminate()
             waybar.wait(timeout=5)

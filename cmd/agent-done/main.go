@@ -158,17 +158,20 @@ type WaybarUpdate struct {
 
 func renderWaybar(s *Snapshot) WaybarUpdate {
 	reasons := map[string]string{"done": "已完成", "approval": "待授权", "question": "待回答", "error": "执行失败"}
-	header := "没有待处理会话"
-	class := []string{"idle"}
-	if s.PendingCount > 0 {
-		header = fmt.Sprintf("待处理 %d 个 Codex 会话", s.PendingCount)
-		class[0] = "pending"
-	}
-	lines := []string{header}
+	lines := []string{"没有本地待处理会话"}
+	ssh, running, pending := 0, 0, 0
 	for _, session := range s.Sessions {
+		if isSSHSession(session) {
+			ssh++
+			continue
+		}
+		if session.Phase == "running" {
+			running++
+		}
 		if !session.Pending {
 			continue
 		}
+		pending++
 		title := shorten(strings.Join(strings.Fields(sessionTitle(session)), " "), 100)
 		reason := reasons[session.Reason]
 		if reason == "" {
@@ -202,13 +205,22 @@ func renderWaybar(s *Snapshot) WaybarUpdate {
 			lines = append(lines, "  "+location)
 		}
 	}
+	class := []string{"idle"}
+	if pending > 0 {
+		lines[0] = fmt.Sprintf("待处理 %d 个本地 Codex 会话", pending)
+		class[0] = "pending"
+	}
 	if !s.DesktopConnected {
 		lines = append(lines, "niri 连接中，位置和查看状态稍后更新")
 		class = append(class, "disconnected")
 	}
 	// Waybar interprets Pango markup in tooltips.
 	escape := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&#39;")
-	return WaybarUpdate{Text: fmt.Sprintf("Codex %d", s.PendingCount), Tooltip: escape.Replace(strings.Join(lines, "\n")), Class: class}
+	return WaybarUpdate{
+		Text:    fmt.Sprintf("AGENT: %d (LOCAL: %d, SSH: %d), RUNNING: %d, DONE: %d", len(s.Sessions), len(s.Sessions)-ssh, ssh, running, pending),
+		Tooltip: escape.Replace(strings.Join(lines, "\n")),
+		Class:   class,
+	}
 }
 
 func streamSnapshots(ctx context.Context, emit func(WaybarUpdate) error) error {
@@ -248,7 +260,7 @@ func waybar(ctx context.Context) error {
 		if ctx.Err() != nil {
 			break
 		}
-		if err := emit(WaybarUpdate{Text: "Codex ?", Tooltip: "提醒服务连接中", Class: "disconnected"}); err != nil {
+		if err := emit(WaybarUpdate{Text: "AGENT: ? (LOCAL: ?, SSH: ?), RUNNING: ?, DONE: ?", Tooltip: "提醒服务连接中", Class: "disconnected"}); err != nil {
 			if errors.Is(err, syscall.EPIPE) {
 				return nil
 			}
